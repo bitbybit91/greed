@@ -4,7 +4,7 @@ import typing
 import requests
 import telegram
 from sqlalchemy import Column, ForeignKey, UniqueConstraint
-from sqlalchemy import Integer, BigInteger, String, Text, LargeBinary, DateTime, Boolean
+from sqlalchemy import Integer, BigInteger, String, Text, LargeBinary, DateTime, Boolean, Float
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, backref
 
@@ -102,6 +102,8 @@ class Product(TableDeclarativeBase):
     image = Column(LargeBinary)
     # Product has been deleted
     deleted = Column(Boolean, nullable=False)
+    # Product weight in grams (for shipping calculations)
+    weight = Column(Float, default=0.0)
 
     # Extra table parameters
     __tablename__ = "products"
@@ -117,10 +119,15 @@ class Product(TableDeclarativeBase):
                 cart = w.loc.get("in_cart_format_string", quantity=cart_qty)
             else:
                 cart = ''
+            # Include weight if available
+            weight_str = ""
+            if self.weight and self.weight > 0:
+                weight_str = w.loc.get("product_weight_format", weight=self.weight)
             return w.loc.get("product_format_string", name=utils.telegram_html_escape(self.name),
                              description=utils.telegram_html_escape(self.description),
                              price=str(w.Price(self.price)),
-                             cart=cart)
+                             cart=cart,
+                             weight=weight_str)
         else:
             raise ValueError("style is not an accepted value")
 
@@ -245,6 +252,14 @@ class Order(TableDeclarativeBase):
     notes = Column(Text)
     # Linked transaction
     transaction = relationship("Transaction", back_populates="order", uselist=False)
+    # Shipping method (DHL, FedEx, National Post, None for digital/pickup)
+    shipping_method = Column(String)
+    # Shipping address
+    shipping_address = Column(Text)
+    # Shipping cost (in minimum currency units)
+    shipping_cost = Column(Integer, default=0)
+    # Tracking number (filled when shipped)
+    tracking_number = Column(String)
 
     # Extra table parameters
     __tablename__ = "orders"
@@ -265,13 +280,24 @@ class Order(TableDeclarativeBase):
         else:
             status_emoji = w.loc.get("emoji_not_processed")
             status_text = w.loc.get("text_not_processed")
+        
+        # Build shipping info string
+        shipping_info = ""
+        if self.shipping_method:
+            shipping_info = w.loc.get("order_shipping_info",
+                                      method=self.shipping_method,
+                                      address=self.shipping_address or "",
+                                      cost=str(w.Price(self.shipping_cost)) if self.shipping_cost else w.loc.get("text_free"),
+                                      tracking=self.tracking_number or w.loc.get("text_not_available"))
+        
         if user and w.cfg["Appearance"]["full_order_info"] == "no":
             return w.loc.get("user_order_format_string",
                              status_emoji=status_emoji,
                              status_text=status_text,
                              items=items,
                              notes=self.notes,
-                             value=str(w.Price(-self.transaction.value))) + \
+                             value=str(w.Price(-self.transaction.value)),
+                             shipping=shipping_info) + \
                    (w.loc.get("refund_reason", reason=self.refund_reason) if self.refund_date is not None else "")
         else:
             return status_emoji + " " + \
@@ -281,7 +307,8 @@ class Order(TableDeclarativeBase):
                              date=self.creation_date.isoformat(),
                              items=items,
                              notes=self.notes if self.notes is not None else "",
-                             value=str(w.Price(-self.transaction.value))) + \
+                             value=str(w.Price(-self.transaction.value)),
+                             shipping=shipping_info) + \
                    (w.loc.get("refund_reason", reason=self.refund_reason) if self.refund_date is not None else "")
 
 
@@ -305,3 +332,39 @@ class OrderItem(TableDeclarativeBase):
 
     def __repr__(self):
         return f"<OrderItem {self.item_id}>"
+
+
+class BtcTransaction(TableDeclarativeBase):
+    """A Bitcoin transaction for payments via Blockonomics."""
+
+    # The internal transaction ID
+    id = Column(Integer, primary_key=True)
+    # The user who initiated the payment
+    user_id = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    user = relationship("User")
+    # Bitcoin address generated for this payment
+    btc_address = Column(String, unique=True, nullable=False)
+    # Amount in BTC (stored as string for precision)
+    amount_btc = Column(String, nullable=False)
+    # Amount in fiat currency (in minimum units)
+    amount_fiat = Column(Integer, nullable=False)
+    # Fiat currency code
+    currency = Column(String, nullable=False)
+    # Payment status: pending, unconfirmed, confirmed, expired
+    status = Column(String, default="pending")
+    # Bitcoin transaction ID (txid) when payment is received
+    txid = Column(String)
+    # Number of confirmations
+    confirmations = Column(Integer, default=0)
+    # Timestamp when payment was created
+    created_at = Column(DateTime, nullable=False)
+    # Timestamp when payment expires
+    expires_at = Column(DateTime, nullable=False)
+    # Timestamp when payment was confirmed
+    confirmed_at = Column(DateTime)
+
+    # Extra table parameters
+    __tablename__ = "btc_transactions"
+
+    def __repr__(self):
+        return f"<BtcTransaction {self.id} for User {self.user_id}>"

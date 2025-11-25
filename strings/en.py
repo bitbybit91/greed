@@ -17,7 +17,11 @@ in_cart_format_string = "{quantity} in cart"
 product_format_string = "<b>{name}</b>\n" \
                         "{description}\n" \
                         "{price}\n" \
+                        "{weight}" \
                         "<b>{cart}</b>"
+
+# Product weight format
+product_weight_format = "⚖️ Weight: {weight}g\n"
 
 # Order number, displayed in the order info
 order_number = "Order #{id}"
@@ -28,6 +32,7 @@ order_format_string = "by {user}\n" \
                       "\n" \
                       "{items}\n" \
                       "TOTAL: <b>{value}</b>\n" \
+                      "{shipping}" \
                       "\n" \
                       "Customer notes: {notes}\n"
 
@@ -35,8 +40,16 @@ order_format_string = "by {user}\n" \
 user_order_format_string = "{status_emoji} <b>Order {status_text}</b>\n" \
                            "{items}\n" \
                            "TOTAL: <b>{value}</b>\n" \
+                           "{shipping}" \
                            "\n" \
                            "Notes: {notes}\n"
+
+# Order shipping information
+order_shipping_info = "📦 <b>Shipping:</b>\n" \
+                      "Method: {method}\n" \
+                      "Address: {address}\n" \
+                      "Cost: {cost}\n" \
+                      "Tracking: {tracking}\n"
 
 # Transaction page is loading
 loading_transactions = "<i>Loading transactions...\n" \
@@ -432,3 +445,160 @@ error_user_does_not_exist = "⚠️  The selected user does not exist."
 fatal_conversation_exception = "☢️ Oh no! An <b>error</b> interrupted this conversation\n" \
                                "The error was reported to the bot owner so that he can fix it.\n" \
                                "To restart the conversation, send the /start command again."
+
+# ==================== BITCOIN PAYMENT STRINGS ====================
+
+# Menu: Bitcoin payment option
+menu_bitcoin = "₿ Pay with Bitcoin"
+
+# Bitcoin payment amount selection
+payment_btc_amount = "How many funds do you want to add to your wallet?\n" \
+                     "\n" \
+                     "<i>Select an amount with the buttons below, or enter it manually.</i>"
+
+# Bitcoin payment created - show address and amount
+payment_btc_invoice = "💰 <b>Bitcoin Payment</b>\n" \
+                      "\n" \
+                      "Send exactly <b>{amount_btc} BTC</b>\n" \
+                      "({amount_fiat})\n" \
+                      "\n" \
+                      "To this address:\n" \
+                      "<code>{address}</code>\n" \
+                      "\n" \
+                      "⏱ This payment expires in {timeout} minutes.\n" \
+                      "\n" \
+                      "<i>The payment will be credited automatically once confirmed on the blockchain.</i>"
+
+# Bitcoin payment - QR code caption
+payment_btc_qr_caption = "Scan this QR code to pay"
+
+# Bitcoin payment pending - waiting for transaction
+payment_btc_pending = "⏳ <b>Waiting for payment...</b>\n" \
+                      "\n" \
+                      "Send <b>{amount_btc} BTC</b> to:\n" \
+                      "<code>{address}</code>\n" \
+                      "\n" \
+                      "Time remaining: {time_remaining}"
+
+# Bitcoin payment - unconfirmed transaction detected
+payment_btc_unconfirmed = "🔄 <b>Payment detected!</b>\n" \
+                          "\n" \
+                          "Your payment has been detected but is waiting for blockchain confirmation.\n" \
+                          "Confirmations: {confirmations}/{required}\n" \
+                          "\n" \
+                          "<i>Please wait, this usually takes 10-30 minutes.</i>"
+
+# Bitcoin payment - confirmed and credited
+payment_btc_confirmed = "✅ <b>Payment confirmed!</b>\n" \
+                        "\n" \
+                        "<b>{amount}</b> has been added to your wallet.\n" \
+                        "Transaction ID: <code>{txid}</code>"
+
+# Bitcoin payment - expired
+payment_btc_expired = "⚠️ <b>Payment expired</b>\n" \
+                      "\n" \
+                      "This payment request has expired.\n" \
+                      "Please create a new payment if you still want to add funds."
+
+# Bitcoin payment - checking status
+payment_btc_checking = "🔍 Checking payment status..."
+
+# Error: Bitcoin payments not configured
+error_btc_not_configured = "⚠️ Bitcoin payments are not configured. Please contact the store administrator."
+
+# Error: Failed to create Bitcoin payment
+error_btc_payment_failed = "⚠️ Failed to create Bitcoin payment. Please try again later."
+
+# Error: Bitcoin amount over max
+error_btc_amount_over_max = "⚠️ The maximum amount for Bitcoin payment is {max_amount}."
+
+# Error: Bitcoin amount under min
+error_btc_amount_under_min = "⚠️ The minimum amount for Bitcoin payment is {min_amount}."
+
+
+# ==================== SHIPPING STRINGS ====================
+
+# Menu: Select shipping method
+menu_shipping = "📦 Select shipping"
+
+# Conversation: Select shipping method
+conversation_select_shipping = "📦 <b>Select a shipping method:</b>\n" \
+                               "\n" \
+                               "{shipping_options}\n" \
+                               "\n" \
+                               "<i>Select a shipping method or choose pickup if available.</i>"
+
+# Shipping method format string
+shipping_method_format = "{name}\n" \
+                         "{description}\n" \
+                         "Cost: {cost}"
+
+# Ask for shipping address
+ask_shipping_address = "📍 Please enter your shipping address:\n" \
+                       "\n" \
+                       "<i>Include your full name, street address, city, postal code, and country.</i>"
+
+# Shipping cost summary
+shipping_cost_summary = "📦 Shipping: {method}\n" \
+                        "Shipping cost: <b>{cost}</b>\n" \
+                        "Total weight: {weight}g"
+
+# Confirm order with shipping
+conversation_confirm_order_shipping = "🛒 <b>Order Summary:</b>\n" \
+                                      "\n" \
+                                      "{product_list}" \
+                                      "Subtotal: <b>{subtotal}</b>\n" \
+                                      "{shipping_summary}\n" \
+                                      "──────────────\n" \
+                                      "<b>TOTAL: {total}</b>\n" \
+                                      "\n" \
+                                      "<i>Press Confirm to place your order.</i>"
+
+# No shipping required (digital product or pickup)
+text_no_shipping = "No shipping required"
+
+# Free shipping
+text_free = "Free"
+
+# Text: Not available
+text_not_available = "N/A"
+
+# Admin: Add tracking number
+ask_tracking_number = "📦 Enter the tracking number for this order:\n" \
+                      "\n" \
+                      "<i>This will be sent to the customer.</i>"
+
+# Admin: Tracking number added
+success_tracking_added = "✅ Tracking number has been added to the order and sent to the customer."
+
+# Notification: Tracking number added
+notification_tracking_added = "📦 <b>Shipping Update</b>\n" \
+                              "\n" \
+                              "Your order has been shipped!\n" \
+                              "Tracking number: <code>{tracking}</code>\n" \
+                              "Carrier: {carrier}"
+
+# Menu: Add tracking
+menu_add_tracking = "📦 Add tracking"
+
+
+# ==================== PRODUCT WEIGHT STRINGS ====================
+
+# Ask for product weight
+ask_product_weight = "⚖️ What is the product weight in grams?\n" \
+                     "\n" \
+                     "<i>Enter 0 for digital products or if weight-based shipping is not needed.</i>"
+
+# Current weight value
+edit_current_weight = "Current weight: {weight}g"
+
+
+# ==================== ADMIN SHIPPING CONFIGURATION ====================
+
+# Menu: Shipping settings
+menu_shipping_settings = "📦 Shipping settings"
+
+# Shipping methods list
+shipping_methods_list = "📦 <b>Shipping Methods:</b>\n" \
+                        "\n" \
+                        "{methods}"

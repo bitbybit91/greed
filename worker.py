@@ -7,6 +7,7 @@ import re
 import threading
 import traceback
 import uuid
+import time
 from html import escape
 from typing import *
 
@@ -17,6 +18,7 @@ import telegram
 import database as db
 import localization
 import nuconfig
+import blockonomics
 
 log = logging.getLogger(__name__)
 
@@ -641,10 +643,37 @@ class Worker(threading.Thread):
         self.bot.send_message(self.chat.id, self.loc.get("ask_order_notes"), reply_markup=cancel)
         # Wait for user input
         notes = self.__wait_for_regex(r"(.*)", cancellable=True)
+        
+        # Calculate total weight for shipping
+        total_weight = self.__get_cart_weight(cart)
+        
+        # Handle shipping if enabled and cart has physical products (weight > 0)
+        shipping_method = None
+        shipping_address = None
+        shipping_cost = 0
+        
+        if self.cfg["Shipping"]["enabled"] and total_weight > 0:
+            # Get shipping method selection
+            shipping_result = self.__select_shipping_method(total_weight)
+            if isinstance(shipping_result, CancelSignal):
+                self.session.rollback()
+                return
+            shipping_method, shipping_cost = shipping_result
+            
+            # Get shipping address if required
+            if self.cfg["Shipping"]["require_address"] and shipping_method != "pickup":
+                self.bot.send_message(self.chat.id, self.loc.get("ask_shipping_address"), reply_markup=cancel)
+                shipping_address = self.__wait_for_regex(r"(.*)", cancellable=True)
+                if isinstance(shipping_address, CancelSignal):
+                    shipping_address = ""
+        
         # Create a new Order
         order = db.Order(user=self.user,
                          creation_date=datetime.datetime.now(),
-                         notes=notes if not isinstance(notes, CancelSignal) else "")
+                         notes=notes if not isinstance(notes, CancelSignal) else "",
+                         shipping_method=shipping_method,
+                         shipping_address=shipping_address if shipping_address else None,
+                         shipping_cost=shipping_cost)
         # Add the record to the session and get an ID
         self.session.add(order)
         # For each product added to the cart, create a new OrderItem
@@ -654,25 +683,81 @@ class Worker(threading.Thread):
                 order_item = db.OrderItem(product=cart[product][0],
                                           order=order)
                 self.session.add(order_item)
+        
+        # Calculate total order value (products + shipping)
+        total_order_value = self.__get_cart_value(cart) + self.Price(shipping_cost)
+        
         # Ensure the user has enough credit to make the purchase
-        credit_required = self.__get_cart_value(cart) - self.user.credit
+        credit_required = total_order_value - self.user.credit
         # Notify user in case of insufficient credit
         if credit_required > 0:
             self.bot.send_message(self.chat.id, self.loc.get("error_not_enough_credit"))
             # Suggest payment for missing credit value if configuration allows refill
-            if self.cfg["Payments"]["CreditCard"]["credit_card_token"] != "" \
+            if self.cfg["Payments"]["Bitcoin"]["enabled"] \
                     and self.cfg["Appearance"]["refill_on_checkout"] \
-                    and self.Price(self.cfg["Payments"]["CreditCard"]["min_amount"]) <= \
+                    and self.Price(self.cfg["Payments"]["Bitcoin"]["min_amount"]) <= \
                     credit_required <= \
-                    self.Price(self.cfg["Payments"]["CreditCard"]["max_amount"]):
-                self.__make_payment(self.Price(credit_required))
-        # If afer requested payment credit is still insufficient (either payment failure or cancel)
-        if self.user.credit < self.__get_cart_value(cart):
+                    self.Price(self.cfg["Payments"]["Bitcoin"]["max_amount"]):
+                self.__make_btc_payment(self.Price(credit_required))
+        # If after requested payment credit is still insufficient (either payment failure or cancel)
+        if self.user.credit < total_order_value:
             # Rollback all the changes
             self.session.rollback()
         else:
             # User has credit and valid order, perform transaction now
-            self.__order_transaction(order=order, value=-int(self.__get_cart_value(cart)))
+            self.__order_transaction(order=order, value=-int(total_order_value))
+
+    def __get_cart_weight(self, cart):
+        """Calculate total weight of items in cart (in grams)."""
+        total_weight = 0.0
+        for product in cart:
+            product_obj = cart[product][0]
+            quantity = cart[product][1]
+            if product_obj.weight:
+                total_weight += product_obj.weight * quantity
+        return total_weight
+
+    def __select_shipping_method(self, total_weight):
+        """Let user select a shipping method and calculate cost."""
+        log.debug("Displaying shipping method selection")
+        
+        shipping_methods = self.cfg["Shipping"]["methods"]
+        
+        # Build keyboard with shipping options
+        keyboard = []
+        method_map = {}
+        
+        for method in shipping_methods:
+            # Calculate shipping cost for this method
+            base_cost = method.get("base_cost", 0)
+            cost_per_kg = method.get("cost_per_kg", 0)
+            shipping_cost = base_cost + int((total_weight / 1000) * cost_per_kg)
+            
+            # Format button text
+            cost_str = str(self.Price(shipping_cost)) if shipping_cost > 0 else self.loc.get("text_free")
+            button_text = f"{method['name']} - {cost_str}"
+            
+            keyboard.append([telegram.KeyboardButton(button_text)])
+            method_map[button_text] = (method['id'], shipping_cost)
+        
+        keyboard.append([telegram.KeyboardButton(self.loc.get("menu_cancel"))])
+        
+        # Send shipping options
+        self.bot.send_message(
+            self.chat.id,
+            self.loc.get("conversation_select_shipping",
+                        shipping_options="\n".join([f"📦 {m['name']}: {m['description']}" for m in shipping_methods])),
+            reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+        )
+        
+        # Wait for selection
+        valid_options = list(method_map.keys()) + [self.loc.get("menu_cancel")]
+        selection = self.__wait_for_specific_message(valid_options, cancellable=True)
+        
+        if isinstance(selection, CancelSignal) or selection == self.loc.get("menu_cancel"):
+            return CancelSignal()
+        
+        return method_map[selection]
 
     def __get_cart_value(self, cart):
         # Calculate total items value in cart
@@ -751,141 +836,229 @@ class Worker(threading.Thread):
         # Cash
         if self.cfg["Payments"]["Cash"]["enable_pay_with_cash"]:
             keyboard.append([telegram.KeyboardButton(self.loc.get("menu_cash"))])
-        # Telegram Payments
-        if self.cfg["Payments"]["CreditCard"]["credit_card_token"] != "":
-            keyboard.append([telegram.KeyboardButton(self.loc.get("menu_credit_card"))])
+        # Bitcoin via Blockonomics
+        if self.cfg["Payments"]["Bitcoin"]["enabled"] and self.cfg["Payments"]["Bitcoin"]["api_key"]:
+            keyboard.append([telegram.KeyboardButton(self.loc.get("menu_bitcoin"))])
         # Keyboard: go back to the previous menu
         keyboard.append([telegram.KeyboardButton(self.loc.get("menu_cancel"))])
         # Send the keyboard to the user
         self.bot.send_message(self.chat.id, self.loc.get("conversation_payment_method"),
                               reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
         # Wait for a reply from the user
-        selection = self.__wait_for_specific_message(
-            [self.loc.get("menu_cash"), self.loc.get("menu_credit_card"), self.loc.get("menu_cancel")],
-            cancellable=True)
+        valid_options = [self.loc.get("menu_cash"), self.loc.get("menu_bitcoin"), self.loc.get("menu_cancel")]
+        selection = self.__wait_for_specific_message(valid_options, cancellable=True)
         # If the user has selected the Cash option...
         if selection == self.loc.get("menu_cash") and self.cfg["Payments"]["Cash"]["enable_pay_with_cash"]:
             # Go to the pay with cash function
             self.bot.send_message(self.chat.id,
                                   self.loc.get("payment_cash", user_cash_id=self.user.identifiable_str()))
-        # If the user has selected the Credit Card option...
-        elif selection == self.loc.get("menu_credit_card") and self.cfg["Payments"]["CreditCard"]["credit_card_token"]:
-            # Go to the pay with credit card function
-            self.__add_credit_cc()
+        # If the user has selected the Bitcoin option...
+        elif selection == self.loc.get("menu_bitcoin") and self.cfg["Payments"]["Bitcoin"]["enabled"]:
+            # Go to the pay with Bitcoin function
+            self.__add_credit_btc()
         # If the user has selected the Cancel option...
         elif isinstance(selection, CancelSignal):
             # Send him back to the previous menu
             return
 
-    def __add_credit_cc(self):
-        """Add money to the wallet through a credit card payment."""
-        log.debug("Displaying __add_credit_cc")
-        # Create a keyboard to be sent later
-        presets = self.cfg["Payments"]["CreditCard"]["payment_presets"]
+    def __add_credit_btc(self):
+        """Add money to the wallet through a Bitcoin payment via Blockonomics."""
+        log.debug("Displaying __add_credit_btc")
+        
+        # Check if Bitcoin payments are configured
+        if not self.cfg["Payments"]["Bitcoin"]["api_key"] or \
+           self.cfg["Payments"]["Bitcoin"]["api_key"] == "YOUR_BLOCKONOMICS_API_KEY_HERE":
+            self.bot.send_message(self.chat.id, self.loc.get("error_btc_not_configured"))
+            return
+        
+        # Create a keyboard with presets
+        presets = self.cfg["Payments"]["Bitcoin"]["payment_presets"]
         keyboard = [[telegram.KeyboardButton(str(self.Price(preset)))] for preset in presets]
         keyboard.append([telegram.KeyboardButton(self.loc.get("menu_cancel"))])
+        
         # Boolean variable to check if the user has cancelled the action
         cancelled = False
+        
         # Loop used to continue asking if there's an error during the input
         while not cancelled:
             # Send the message and the keyboard
-            self.bot.send_message(self.chat.id, self.loc.get("payment_cc_amount"),
+            self.bot.send_message(self.chat.id, self.loc.get("payment_btc_amount"),
                                   reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
             # Wait until a valid amount is sent
             selection = self.__wait_for_regex(r"([0-9]+(?:[.,][0-9]+)?|" + self.loc.get("menu_cancel") + r")",
                                               cancellable=True)
             # If the user cancelled the action
             if isinstance(selection, CancelSignal):
-                # Exit the loop
                 cancelled = True
                 continue
             # Convert the amount to an integer
             value = self.Price(selection)
             # Ensure the amount is within the range
-            if value > self.Price(self.cfg["Payments"]["CreditCard"]["max_amount"]):
+            if value > self.Price(self.cfg["Payments"]["Bitcoin"]["max_amount"]):
                 self.bot.send_message(self.chat.id,
-                                      self.loc.get("error_payment_amount_over_max",
-                                                   max_amount=self.Price(self.cfg["CreditCard"]["max_amount"])))
+                                      self.loc.get("error_btc_amount_over_max",
+                                                   max_amount=self.Price(self.cfg["Payments"]["Bitcoin"]["max_amount"])))
                 continue
-            elif value < self.Price(self.cfg["Payments"]["CreditCard"]["min_amount"]):
+            elif value < self.Price(self.cfg["Payments"]["Bitcoin"]["min_amount"]):
                 self.bot.send_message(self.chat.id,
-                                      self.loc.get("error_payment_amount_under_min",
-                                                   min_amount=self.Price(self.cfg["CreditCard"]["min_amount"])))
+                                      self.loc.get("error_btc_amount_under_min",
+                                                   min_amount=self.Price(self.cfg["Payments"]["Bitcoin"]["min_amount"])))
                 continue
             break
+        
         # If the user cancelled the action...
-        else:
-            # Exit the function
+        if cancelled:
             return
-        # Issue the payment invoice
-        self.__make_payment(amount=value)
+        
+        # Create the Bitcoin payment
+        self.__make_btc_payment(amount=value)
 
-    def __make_payment(self, amount):
-        # Set the invoice active invoice payload
-        self.invoice_payload = str(uuid.uuid4())
-        # Create the price array
-        prices = [telegram.LabeledPrice(label=self.loc.get("payment_invoice_label"), amount=int(amount))]
-        # If the user has to pay a fee when using the credit card, add it to the prices list
-        fee = int(self.__get_total_fee(amount))
-        if fee > 0:
-            prices.append(telegram.LabeledPrice(label=self.loc.get("payment_invoice_fee_label"),
-                                                amount=fee))
-        # Create the invoice keyboard
-        inline_keyboard = telegram.InlineKeyboardMarkup([[telegram.InlineKeyboardButton(self.loc.get("menu_pay"),
-                                                                                        pay=True)],
-                                                         [telegram.InlineKeyboardButton(self.loc.get("menu_cancel"),
-                                                                                        callback_data="cmd_cancel")]])
-        # The amount is valid, send the invoice
-        self.bot.send_invoice(self.chat.id,
-                              title=self.loc.get("payment_invoice_title"),
-                              description=self.loc.get("payment_invoice_description", amount=str(amount)),
-                              payload=self.invoice_payload,
-                              provider_token=self.cfg["Payments"]["CreditCard"]["credit_card_token"],
-                              start_parameter="tempdeeplink",
-                              currency=self.cfg["Payments"]["currency"],
-                              prices=prices,
-                              need_name=self.cfg["Payments"]["CreditCard"]["name_required"],
-                              need_email=self.cfg["Payments"]["CreditCard"]["email_required"],
-                              need_phone_number=self.cfg["Payments"]["CreditCard"]["phone_required"],
-                              reply_markup=inline_keyboard,
-                              max_tip_amount=self.cfg["Payments"]["CreditCard"]["max_tip_amount"],
-                              suggested_tip_amounts=self.cfg["Payments"]["CreditCard"]["tip_presets"],
-                              )
-        # Wait for the precheckout query
-        precheckoutquery = self.__wait_for_precheckoutquery(cancellable=True)
-        # Check if the user has cancelled the invoice
-        if isinstance(precheckoutquery, CancelSignal):
-            # Exit the function
+    def __make_btc_payment(self, amount):
+        """Process a Bitcoin payment via Blockonomics."""
+        log.debug(f"Creating Bitcoin payment for amount: {amount}")
+        
+        # Initialize Blockonomics processor
+        processor = blockonomics.BlockonomicsPaymentProcessor(
+            api_key=self.cfg["Payments"]["Bitcoin"]["api_key"],
+            currency=self.cfg["Payments"]["currency"],
+            payment_timeout=self.cfg["Payments"]["Bitcoin"]["payment_timeout"],
+            min_confirmations=self.cfg["Payments"]["Bitcoin"]["min_confirmations"]
+        )
+        
+        # Convert amount to float for Blockonomics
+        amount_fiat = float(amount) / (10 ** self.cfg["Payments"]["currency_exp"])
+        
+        # Create the payment
+        payment = processor.create_payment(amount_fiat, self.cfg["Payments"]["currency"])
+        
+        if not payment:
+            self.bot.send_message(self.chat.id, self.loc.get("error_btc_payment_failed"))
             return
-        # Accept the checkout
-        self.bot.answer_pre_checkout_query(precheckoutquery.id, ok=True)
-        # Wait for the payment
-        successfulpayment = self.__wait_for_successfulpayment(cancellable=False)
-        # Create a new database transaction
-        transaction = db.Transaction(user=self.user,
-                                     value=int(amount),
-                                     provider="Credit Card",
-                                     telegram_charge_id=successfulpayment.telegram_payment_charge_id,
-                                     provider_charge_id=successfulpayment.provider_payment_charge_id)
-
-        if successfulpayment.order_info is not None:
-            transaction.payment_name = successfulpayment.order_info.name
-            transaction.payment_email = successfulpayment.order_info.email
-            transaction.payment_phone = successfulpayment.order_info.phone_number
-        # Update the user's credit
-        self.user.recalculate_credit()
-        # Commit all the changes
+        
+        # Store the payment in database
+        btc_tx = db.BtcTransaction(
+            user_id=self.user.user_id,
+            btc_address=payment.address,
+            amount_btc=str(payment.amount_btc),
+            amount_fiat=int(amount),
+            currency=self.cfg["Payments"]["currency"],
+            status="pending",
+            created_at=datetime.datetime.now(),
+            expires_at=datetime.datetime.fromtimestamp(payment.expires_at)
+        )
+        self.session.add(btc_tx)
         self.session.commit()
-
-    def __get_total_fee(self, amount):
-        # Calculate a fee for the required amount
-        fee_percentage = self.cfg["Payments"]["CreditCard"]["fee_percentage"] / 100
-        fee_fixed = self.cfg["Payments"]["CreditCard"]["fee_fixed"]
-        total_fee = amount * fee_percentage + fee_fixed
-        if total_fee > 0:
-            return total_fee
-        # Set the fee to 0 to ensure no accidental discounts are applied
-        return 0
+        
+        # Calculate timeout in minutes
+        timeout_minutes = self.cfg["Payments"]["Bitcoin"]["payment_timeout"] // 60
+        
+        # Create inline keyboard for checking status
+        inline_keyboard = telegram.InlineKeyboardMarkup([
+            [telegram.InlineKeyboardButton(self.loc.get("payment_btc_checking"), callback_data="btc_check")],
+            [telegram.InlineKeyboardButton(self.loc.get("menu_cancel"), callback_data="cmd_cancel")]
+        ])
+        
+        # Send payment details to user
+        payment_message = self.bot.send_message(
+            self.chat.id,
+            self.loc.get("payment_btc_invoice",
+                        amount_btc=blockonomics.format_btc_amount(payment.amount_btc),
+                        amount_fiat=str(amount),
+                        address=payment.address,
+                        timeout=timeout_minutes),
+            reply_markup=inline_keyboard
+        )
+        
+        # Wait for payment or cancellation
+        # Poll for payment status periodically
+        check_interval = 30  # Check every 30 seconds
+        max_checks = self.cfg["Payments"]["Bitcoin"]["payment_timeout"] // check_interval
+        
+        for check_num in range(max_checks):
+            # Wait for user input or timeout
+            try:
+                data = self.queue.get(timeout=check_interval)
+                # Check if it's a cancel signal
+                if isinstance(data, CancelSignal):
+                    btc_tx.status = "cancelled"
+                    self.session.commit()
+                    self.bot.send_message(self.chat.id, self.loc.get("payment_btc_expired"))
+                    return
+                # Check if it's a callback query
+                if hasattr(data, 'callback_query') and data.callback_query:
+                    if data.callback_query.data == "cmd_cancel":
+                        btc_tx.status = "cancelled"
+                        self.session.commit()
+                        self.bot.answer_callback_query(data.callback_query.id)
+                        self.bot.send_message(self.chat.id, self.loc.get("payment_btc_expired"))
+                        return
+                    elif data.callback_query.data == "btc_check":
+                        self.bot.answer_callback_query(data.callback_query.id, text="Checking...")
+            except queuem.Empty:
+                pass
+            
+            # Check payment status
+            status = processor.check_payment_status(payment.address)
+            payment_obj = processor.get_payment(payment.address)
+            
+            if status == blockonomics.PaymentStatus.CONFIRMED:
+                # Payment confirmed!
+                btc_tx.status = "confirmed"
+                btc_tx.txid = payment_obj.txid if payment_obj else None
+                btc_tx.confirmations = payment_obj.confirmations if payment_obj else 1
+                btc_tx.confirmed_at = datetime.datetime.now()
+                
+                # Create wallet transaction
+                transaction = db.Transaction(
+                    user=self.user,
+                    value=int(amount),
+                    provider="Bitcoin",
+                    provider_charge_id=btc_tx.btc_address
+                )
+                self.session.add(transaction)
+                
+                # Update user credit
+                self.user.recalculate_credit()
+                self.session.commit()
+                
+                # Notify user
+                self.bot.send_message(
+                    self.chat.id,
+                    self.loc.get("payment_btc_confirmed",
+                                amount=str(amount),
+                                txid=btc_tx.txid or "N/A")
+                )
+                return
+            
+            elif status == blockonomics.PaymentStatus.UNCONFIRMED:
+                # Update status message
+                btc_tx.status = "unconfirmed"
+                btc_tx.txid = payment_obj.txid if payment_obj else None
+                btc_tx.confirmations = payment_obj.confirmations if payment_obj else 0
+                self.session.commit()
+                
+                try:
+                    self.bot.edit_message_text(
+                        chat_id=self.chat.id,
+                        message_id=payment_message.message_id,
+                        text=self.loc.get("payment_btc_unconfirmed",
+                                         confirmations=btc_tx.confirmations,
+                                         required=self.cfg["Payments"]["Bitcoin"]["min_confirmations"]),
+                        reply_markup=inline_keyboard
+                    )
+                except telegram.error.BadRequest:
+                    pass  # Message already has this text
+            
+            elif status == blockonomics.PaymentStatus.EXPIRED:
+                btc_tx.status = "expired"
+                self.session.commit()
+                self.bot.send_message(self.chat.id, self.loc.get("payment_btc_expired"))
+                return
+        
+        # Timeout reached
+        btc_tx.status = "expired"
+        self.session.commit()
+        self.bot.send_message(self.chat.id, self.loc.get("payment_btc_expired"))
 
     def __bot_info(self):
         """Send information about the bot."""
@@ -1047,6 +1220,29 @@ class Worker(threading.Thread):
             price = self.Price(price)
         if not isinstance(price, CancelSignal) and price is not None:
             price = int(price)
+        
+        # Ask for the product weight (for shipping calculations)
+        self.bot.send_message(self.chat.id, self.loc.get("ask_product_weight"))
+        # Display the current weight if editing an existing product
+        if product:
+            current_weight = product.weight if product.weight else 0
+            self.bot.send_message(
+                self.chat.id,
+                self.loc.get("edit_current_value", value=f"{current_weight}g"),
+                reply_markup=cancel
+            )
+        # Wait for an answer
+        weight = self.__wait_for_regex(r"([0-9]+(?:[.,][0-9]+)?)",
+                                       cancellable=True)
+        # Parse weight
+        if isinstance(weight, CancelSignal):
+            weight = None
+        else:
+            try:
+                weight = float(weight.replace(",", "."))
+            except (ValueError, AttributeError):
+                weight = 0.0
+        
         # Ask for the product image
         self.bot.send_message(self.chat.id, self.loc.get("ask_product_image"), reply_markup=cancel)
         # Wait for an answer
@@ -1058,6 +1254,7 @@ class Worker(threading.Thread):
             product = db.Product(name=name,
                                  description=description,
                                  price=price,
+                                 weight=weight if weight else 0.0,
                                  deleted=False)
             # Add the record to the database
             self.session.add(product)
@@ -1067,6 +1264,8 @@ class Worker(threading.Thread):
             product.name = name if not isinstance(name, CancelSignal) else product.name
             product.description = description if not isinstance(description, CancelSignal) else product.description
             product.price = price if not isinstance(price, CancelSignal) else product.price
+            if weight is not None:
+                product.weight = weight
         # If a photo has been sent...
         if isinstance(photo_list, list):
             # Find the largest photo id

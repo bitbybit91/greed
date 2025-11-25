@@ -15,7 +15,7 @@
 # The lanugages that messages can be displayed in
 enabled_languages = ["it", "en", "uk", "ru", "zh_cn", "he", "es_mx", "pt_br", "hi"]
 # The default language to be set for users whose language cannot be autodetected or whose language is not enabled
-default_language = "it"
+default_language = "en"
 # The language to fallback to if a string is missing in a specific language
 # You should set it to either "it" or "en", other languages may be missing some strings as greed is updated
 fallback_language = "en"
@@ -49,13 +49,13 @@ con_pool_size = 10
 # General payment settings
 [Payments]
 # ISO currency code
-currency = "EUR"
+currency = "USD"
 # Currency exp parameter. You can find that on https://core.telegram.org/bots/payments/currencies.json.
 # It has a value of 2 in most currencies (EUR, USD, GBP...)
 currency_exp = 2
 # Currency symbol which is show to the client users when displaying prices and transaction values
 # If not defined here, default language specific currency symbol from strings would be used
-currency_symbol = "€"
+currency_symbol = "$"
 
 
 # Cash payment settings
@@ -67,40 +67,66 @@ enable_create_transaction = true
 # Customize the cash payment text in the strings files!
 
 
-# Credit card payment settings
-[Payments.CreditCard]
-# Telegram Payments provider token obtainable at https://t.me/BotFather in the bot's Payments menu
-# If empty, credit card payments are disabled.
-# credit_card_token = ""
-credit_card_token = "123456789:YOUR_TOKEN_HERE_"
-# Minimum wallet payment accepted (in miniumum currency units, $1.00 = 100 units)
+# Bitcoin/Crypto payment settings via Blockonomics
+[Payments.Bitcoin]
+# Enable Bitcoin payments via Blockonomics
+# Set to true to allow users to pay with Bitcoin
+enabled = true
+# Your Blockonomics API key - get one at https://www.blockonomics.co/
+# Go to Merchants -> API Keys to generate your key
+api_key = "YOUR_BLOCKONOMICS_API_KEY_HERE"
+# Minimum payment amount in fiat currency (in minimum units, e.g., $10.00 = 1000 cents)
 min_amount = 1000
-# Maximum wallet payment accepted (in miniumum currency units, $1.00 = 100 units)
-max_amount = 10000
-# The preset selections that can be made when adding credit to the wallet with a credit card
-# Presets are pipe-separated |, and should never be outside the bounds provided by the min_amount and max_amount options
+# Maximum payment amount in fiat currency (in minimum units, e.g., $1000.00 = 100000 cents)
+max_amount = 100000
+# Payment timeout in seconds (default: 1 hour)
+# After this time, the payment will expire if not received
+payment_timeout = 3600
+# Minimum confirmations required before marking payment as complete
+# 0 = accept unconfirmed transactions (faster but less secure)
+# 1 = wait for 1 confirmation (recommended for most cases)
+# 3+ = higher security for larger transactions
+min_confirmations = 1
+# Payment presets in fiat currency for quick selection
 payment_presets = [10.00, 25.00, 50.00, 100.00]
-# Suggested tip amounts in minimum currency units
-# Maximum 4 values; if the array is empty, the feature is disabled
-# Enabling this feature is not recommended, as it may be confusing for the users
-# tip_presets = [100, 250, 500, 1000]  # €1.00 €2.50 €5.00 €10.00
-tip_presets = []
-# Maximum tip amount in minimum currency units
-# max_tip_amount = 1000
-max_tip_amount = 0
-# Make the user pay a extra fee when adding credit to the wallet with a credit card
-# The formula for determining the total cost is:
-# cost = added_funds + added_funds * fee_percentage / 100 + fee_fixed
-# Set these values to 0 to disable the feature.
-fee_percentage = 2.9
-fee_fixed = 30
-# "Shipping" information
-# Telegram can ask for extra information when charging the user for a credit card transaction
-# Set to yes the data you want to be required
-# This data will be stored in the database
-name_required = true
-email_required = true
-phone_required = true
+
+
+# Shipping configuration
+[Shipping]
+# Enable shipping options for physical products
+enabled = true
+# Require shipping address for physical product orders
+require_address = true
+
+# Available shipping methods
+# Each method has: name, description, base_cost (in minimum currency units), cost_per_kg
+[[Shipping.methods]]
+id = "dhl"
+name = "DHL Express"
+description = "Fast international shipping (3-5 business days)"
+base_cost = 1500  # $15.00 base
+cost_per_kg = 500  # $5.00 per kg
+
+[[Shipping.methods]]
+id = "fedex"
+name = "FedEx"
+description = "Reliable shipping (5-7 business days)"
+base_cost = 1200  # $12.00 base
+cost_per_kg = 400  # $4.00 per kg
+
+[[Shipping.methods]]
+id = "national"
+name = "National Post"
+description = "Standard domestic shipping (7-14 business days)"
+base_cost = 500  # $5.00 base
+cost_per_kg = 200  # $2.00 per kg
+
+[[Shipping.methods]]
+id = "pickup"
+name = "Local Pickup"
+description = "Pick up at store location (Free)"
+base_cost = 0
+cost_per_kg = 0
 
 
 # Bot appearance settings
