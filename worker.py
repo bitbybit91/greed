@@ -644,28 +644,29 @@ class Worker(threading.Thread):
         # Wait for user input
         notes = self.__wait_for_regex(r"(.*)", cancellable=True)
         
-        # Calculate total weight for shipping
-        total_weight = self.__get_cart_weight(cart)
-        
-        # Handle shipping if enabled and cart has physical products (weight > 0)
+        # Handle shipping if enabled
         shipping_method = None
         shipping_address = None
         shipping_cost = 0
         
-        if self.cfg["Shipping"]["enabled"] and total_weight > 0:
-            # Get shipping method selection
-            shipping_result = self.__select_shipping_method(total_weight)
-            if isinstance(shipping_result, CancelSignal):
-                self.session.rollback()
-                return
-            shipping_method, shipping_cost = shipping_result
+        if self.cfg["Shipping"]["enabled"]:
+            # Calculate total weight for shipping
+            total_weight = self.__get_cart_weight(cart)
             
-            # Get shipping address if required
-            if self.cfg["Shipping"]["require_address"] and shipping_method != "pickup":
-                self.bot.send_message(self.chat.id, self.loc.get("ask_shipping_address"), reply_markup=cancel)
-                shipping_address = self.__wait_for_regex(r"(.*)", cancellable=True)
-                if isinstance(shipping_address, CancelSignal):
-                    shipping_address = ""
+            if total_weight > 0:
+                # Get shipping method selection
+                shipping_result = self.__select_shipping_method(total_weight)
+                if isinstance(shipping_result, CancelSignal):
+                    self.session.rollback()
+                    return
+                shipping_method, shipping_cost = shipping_result
+                
+                # Get shipping address if required
+                if self.cfg["Shipping"]["require_address"] and shipping_method != "pickup":
+                    self.bot.send_message(self.chat.id, self.loc.get("ask_shipping_address"), reply_markup=cancel)
+                    shipping_address = self.__wait_for_regex(r"(.*)", cancellable=True)
+                    if isinstance(shipping_address, CancelSignal):
+                        shipping_address = ""
         
         # Create a new Order
         order = db.Order(user=self.user,
@@ -935,11 +936,12 @@ class Worker(threading.Thread):
             self.bot.send_message(self.chat.id, self.loc.get("error_btc_payment_failed"))
             return
         
-        # Store the payment in database
+        # Store the payment in database (convert BTC to satoshis for storage)
+        amount_satoshis = int(payment.amount_btc * 100000000)
         btc_tx = db.BtcTransaction(
             user_id=self.user.user_id,
             btc_address=payment.address,
-            amount_btc=str(payment.amount_btc),
+            amount_satoshis=amount_satoshis,
             amount_fiat=int(amount),
             currency=self.cfg["Payments"]["currency"],
             status="pending",

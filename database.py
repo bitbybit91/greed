@@ -344,8 +344,8 @@ class BtcTransaction(TableDeclarativeBase):
     user = relationship("User")
     # Bitcoin address generated for this payment
     btc_address = Column(String, unique=True, nullable=False)
-    # Amount in BTC (stored as string for precision)
-    amount_btc = Column(String, nullable=False)
+    # Amount in satoshis (1 BTC = 100,000,000 satoshis) for precision
+    amount_satoshis = Column(BigInteger, nullable=False)
     # Amount in fiat currency (in minimum units)
     amount_fiat = Column(Integer, nullable=False)
     # Fiat currency code
@@ -365,6 +365,11 @@ class BtcTransaction(TableDeclarativeBase):
 
     # Extra table parameters
     __tablename__ = "btc_transactions"
+
+    @property
+    def amount_btc(self):
+        """Get amount in BTC from satoshis."""
+        return self.amount_satoshis / 100000000
 
     def __repr__(self):
         return f"<BtcTransaction {self.id} for User {self.user_id}>"
