@@ -1,0 +1,71 @@
+# Greed Telegram Shop Bot - Systemd Service File
+# This service file allows running the greed bot as a systemd service for 24/7 operation
+#
+# Installation:
+# 1. Copy this file to /etc/systemd/system/greed.service
+# 2. Edit the paths and user settings below
+# 3. Run: sudo systemctl daemon-reload
+# 4. Run: sudo systemctl enable greed
+# 5. Run: sudo systemctl start greed
+#
+# For multiple bot instances, create copies with different names (e.g., greed-shop1.service)
+# and use different CONFIG_PATH environment variables
+
+[Unit]
+Description=Greed Telegram Shop Bot
+After=network.target
+# Optional: If using PostgreSQL or MySQL, add the appropriate service dependency
+# After=network.target postgresql.service
+# After=network.target mysql.service
+
+# Restart the service if it crashes
+StartLimitIntervalSec=500
+StartLimitBurst=5
+
+[Service]
+# User to run the bot as (create a dedicated user for security)
+User=greed
+Group=greed
+
+# Working directory - change this to your greed installation path
+WorkingDirectory=/opt/greed
+
+# Python interpreter and main script
+# Adjust the Python path if using a virtual environment
+ExecStart=/opt/greed/venv/bin/python /opt/greed/core.py
+
+# Environment variables
+# CONFIG_PATH: Path to config file (allows multiple bot instances)
+# DB_ENGINE: Override database engine from config
+Environment="CONFIG_PATH=/opt/greed/config/config.toml"
+# Uncomment and modify for different instances:
+# Environment="CONFIG_PATH=/opt/greed/config/config-shop1.toml"
+# Environment="CONFIG_PATH=/opt/greed/config/config-shop2.toml"
+
+# Restart policy - always restart on failure
+Restart=always
+RestartSec=5
+
+# Process management
+Type=simple
+KillMode=process
+
+# Resource limits (adjust based on your VPS resources)
+# MemoryLimit=512M
+# CPUQuota=50%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=greed
+
+# Security hardening (optional but recommended)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+# Allow write access to the database and logs directories
+ReadWritePaths=/opt/greed/
+
+[Install]
+WantedBy=multi-user.target
