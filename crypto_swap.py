@@ -14,6 +14,7 @@ import datetime
 import logging
 import threading
 import time
+import uuid
 from decimal import Decimal, InvalidOperation
 from typing import Dict, List, Optional, Tuple
 
@@ -180,7 +181,6 @@ class CryptoSwapEngine:
         net_source = source_amount - fee_amount
         destination_amount = net_source * rate
 
-        import uuid
         quote_id = str(uuid.uuid4())
         expires_at = datetime.datetime.utcnow() + datetime.timedelta(seconds=self._confirmation_timeout())
 
@@ -304,6 +304,19 @@ class CryptoSwapEngine:
             session.add(wallet)
             session.flush()  # assign wallet_id without committing
         return wallet
+
+    def get_wallet_balance(
+        self, session: sqlalchemy.orm.Session, user_id: int, currency: str
+    ) -> Decimal:
+        """Return the balance for *user_id* in *currency* (zero if no wallet exists)."""
+        wallet = (
+            session.query(db.CryptoWallet)
+            .filter_by(user_id=user_id, currency=currency)
+            .one_or_none()
+        )
+        if wallet is None:
+            return Decimal("0")
+        return Decimal(str(wallet.balance))
 
     def get_wallet_balances(
         self, session: sqlalchemy.orm.Session, user_id: int

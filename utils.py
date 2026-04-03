@@ -60,12 +60,13 @@ def validate_crypto_address(address: str, currency: str) -> bool:
     """Perform a basic format check on a cryptocurrency address.
 
     Returns ``True`` if the address looks valid for the given *currency*,
-    ``False`` otherwise.  For unknown currencies the check always passes so
-    that new currencies don't block withdrawals.
+    ``False`` otherwise.  For currencies that have no configured validation
+    pattern, returns ``False`` to err on the side of caution (operators should
+    add patterns for any new currencies they enable).
     """
     pattern = _ADDRESS_PATTERNS.get(currency.upper())
     if pattern is None:
-        return True
+        return False
     return bool(pattern.match(address.strip()))
 
 

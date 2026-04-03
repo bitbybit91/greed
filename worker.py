@@ -1505,7 +1505,14 @@ class Worker(threading.Thread):
                     raise ValueError("Amount must be positive.")
                 break
             except (InvalidOperation, ValueError):
-                self.bot.send_message(self.chat.id, self.loc.get("error_price_fetch_failed"))
+                # Re-send the amount prompt so the user can correct their input
+                self.bot.send_message(
+                    self.chat.id,
+                    self.loc.get("swap_enter_amount",
+                                 currency=source_currency,
+                                 min_amount=utils.format_crypto_amount(min_amt, source_currency),
+                                 max_amount=utils.format_crypto_amount(max_amt, source_currency)),
+                )
 
         # Step 4: get quote
         try:
@@ -1569,9 +1576,9 @@ class Worker(threading.Thread):
                     "error_insufficient_crypto_balance",
                     currency=source_currency,
                     available=utils.format_crypto_amount(
-                        self.swap_engine._get_or_create_wallet(
+                        self.swap_engine.get_wallet_balance(
                             self.session, self.user.user_id, source_currency
-                        ).balance,
+                        ),
                         source_currency,
                     ),
                     required=utils.format_crypto_amount(amount, source_currency),

@@ -28,6 +28,9 @@ log = logging.getLogger(__name__)
 class BotInstance:
     """Represents a single running bot with its own polling thread and worker dict."""
 
+    # Commands that trigger a new Worker thread for a chat.
+    BOOTSTRAP_COMMANDS = ("/start", "/swap", "/price", "/wallet", "/history")
+
     def __init__(
         self,
         name: str,
@@ -126,8 +129,7 @@ class BotInstance:
 
         text = msg.text or ""
         # /start or swap-related commands bootstrap a new worker
-        bootstrap_commands = ("/start", "/swap", "/price", "/wallet", "/history")
-        if any(text.startswith(cmd) for cmd in bootstrap_commands):
+        if any(text.startswith(cmd) for cmd in self.BOOTSTRAP_COMMANDS):
             log.info(f"[{self.name}] Received '{text.split()[0]}' from chat {msg.chat.id}")
             old_worker = self.chat_workers.get(msg.chat.id)
             if old_worker and old_worker.is_alive():
@@ -292,6 +294,10 @@ class BotManager:
     def wait_for_shutdown(self) -> None:
         """Block until :meth:`stop_all` is called (e.g. from a signal handler)."""
         self._shutdown_event.wait()
+
+    def is_shutdown_requested(self) -> bool:
+        """Return ``True`` if a shutdown has been requested via :meth:`stop_all`."""
+        return self._shutdown_event.is_set()
 
     # ------------------------------------------------------------------
     # Health check

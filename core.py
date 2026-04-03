@@ -144,7 +144,7 @@ def main():
     last_heartbeat = time.monotonic()
 
     try:
-        while not bot_manager._shutdown_event.is_set():
+        while not bot_manager.is_shutdown_requested():
             # Sleep in short increments to remain responsive to signals
             time.sleep(1)
             now = time.monotonic()

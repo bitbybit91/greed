@@ -30,9 +30,9 @@ def _make_duckbot_class(cfg: nuconfig.NuConfig, token: str):
 
     def _rate_limit(chat_id=None):
         """Block until both the global and per-chat rate limits allow a call."""
-        now = time.monotonic()
         with _global_lock:
             # --- global limit ---
+            now = time.monotonic()
             # Remove entries older than the sliding window
             while _global_timestamps and now - _global_timestamps[0] > _GLOBAL_WINDOW:
                 _global_timestamps.popleft()
@@ -44,10 +44,10 @@ def _make_duckbot_class(cfg: nuconfig.NuConfig, token: str):
 
             # --- per-chat limit ---
             if chat_id is not None:
+                now_chat = time.monotonic()
                 last_sent = _chat_timestamps.get(chat_id, 0)
-                now2 = time.monotonic()
-                if now2 - last_sent < 1.0:
-                    time.sleep(1.0 - (now2 - last_sent))
+                if now_chat - last_sent < 1.0:
+                    time.sleep(1.0 - (now_chat - last_sent))
                 _chat_timestamps[chat_id] = time.monotonic()
 
     def catch_telegram_errors(func):
