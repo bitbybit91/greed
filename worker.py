@@ -7,6 +7,7 @@ import re
 import threading
 import traceback
 import uuid
+from decimal import Decimal
 from html import escape
 from typing import *
 
@@ -17,6 +18,7 @@ import telegram
 import database as db
 import localization
 import nuconfig
+import utils
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +44,7 @@ class Worker(threading.Thread):
                  telegram_user: telegram.User,
                  cfg: nuconfig.NuConfig,
                  engine,
+                 swap_engine=None,
                  *args,
                  **kwargs):
         # Initialize the thread
@@ -52,6 +55,8 @@ class Worker(threading.Thread):
         self.telegram_user: telegram.User = telegram_user
         self.cfg = cfg
         self.loc = None
+        # Crypto swap engine (optional — None if swap features are disabled)
+        self.swap_engine = swap_engine
         # Open a new database session
         log.debug(f"Opening new database session for {self.name}")
         self.session = sqlalchemy.orm.sessionmaker(bind=engine)()
@@ -450,20 +455,35 @@ class Worker(threading.Thread):
                         [telegram.KeyboardButton(self.loc.get("menu_language"))],
                         [telegram.KeyboardButton(self.loc.get("menu_help")),
                          telegram.KeyboardButton(self.loc.get("menu_bot_info"))]]
+            # Add crypto swap buttons if the swap engine is available
+            if self.swap_engine is not None:
+                keyboard.insert(0, [telegram.KeyboardButton(self.loc.get("menu_swap"))])
+                keyboard.insert(1, [telegram.KeyboardButton(self.loc.get("menu_wallet")),
+                                    telegram.KeyboardButton(self.loc.get("menu_prices"))])
+                keyboard.insert(2, [telegram.KeyboardButton(self.loc.get("menu_swap_history"))])
             # Send the previously created keyboard to the user (ensuring it can be clicked only 1 time)
             self.bot.send_message(self.chat.id,
                                   self.loc.get("conversation_open_user_menu",
                                                credit=self.Price(self.user.credit)),
                                   reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
-            # Wait for a reply from the user
-            selection = self.__wait_for_specific_message([
+            # Build the list of valid selections
+            valid_selections = [
                 self.loc.get("menu_order"),
                 self.loc.get("menu_order_status"),
                 self.loc.get("menu_add_credit"),
                 self.loc.get("menu_language"),
                 self.loc.get("menu_help"),
                 self.loc.get("menu_bot_info"),
-            ])
+            ]
+            if self.swap_engine is not None:
+                valid_selections += [
+                    self.loc.get("menu_swap"),
+                    self.loc.get("menu_wallet"),
+                    self.loc.get("menu_prices"),
+                    self.loc.get("menu_swap_history"),
+                ]
+            # Wait for a reply from the user
+            selection = self.__wait_for_specific_message(valid_selections)
             # After the user reply, update the user data
             self.update_user()
             # If the user has selected the Order option...
@@ -490,6 +510,15 @@ class Worker(threading.Thread):
             elif selection == self.loc.get("menu_help"):
                 # Go to the Help menu
                 self.__help_menu()
+            # Crypto swap menu options
+            elif self.swap_engine is not None and selection == self.loc.get("menu_swap"):
+                self.__swap_menu()
+            elif self.swap_engine is not None and selection == self.loc.get("menu_wallet"):
+                self.__wallet_menu()
+            elif self.swap_engine is not None and selection == self.loc.get("menu_prices"):
+                self.__prices_menu()
+            elif self.swap_engine is not None and selection == self.loc.get("menu_swap_history"):
+                self.__swap_history_menu()
 
     def __order_menu(self):
         """User menu to order products from the shop."""
@@ -910,18 +939,31 @@ class Worker(threading.Thread):
                 keyboard.append([self.loc.get("menu_transactions"), self.loc.get("menu_csv")])
             if self.admin.is_owner:
                 keyboard.append([self.loc.get("menu_edit_admins")])
+            # Add swap admin options if swap engine is available
+            if self.swap_engine is not None and self.admin.is_owner:
+                keyboard.append([self.loc.get("menu_admin_swap_panel"),
+                                  self.loc.get("menu_admin_fee_summary")])
+                keyboard.append([self.loc.get("menu_admin_deposit")])
             keyboard.append([self.loc.get("menu_user_mode")])
+            # Build list of valid selections
+            valid_selections = [self.loc.get("menu_products"),
+                                 self.loc.get("menu_orders"),
+                                 self.loc.get("menu_user_mode"),
+                                 self.loc.get("menu_edit_credit"),
+                                 self.loc.get("menu_transactions"),
+                                 self.loc.get("menu_csv"),
+                                 self.loc.get("menu_edit_admins")]
+            if self.swap_engine is not None and self.admin.is_owner:
+                valid_selections += [
+                    self.loc.get("menu_admin_swap_panel"),
+                    self.loc.get("menu_admin_fee_summary"),
+                    self.loc.get("menu_admin_deposit"),
+                ]
             # Send the previously created keyboard to the user (ensuring it can be clicked only 1 time)
             self.bot.send_message(self.chat.id, self.loc.get("conversation_open_admin_menu"),
                                   reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
             # Wait for a reply from the user
-            selection = self.__wait_for_specific_message([self.loc.get("menu_products"),
-                                                          self.loc.get("menu_orders"),
-                                                          self.loc.get("menu_user_mode"),
-                                                          self.loc.get("menu_edit_credit"),
-                                                          self.loc.get("menu_transactions"),
-                                                          self.loc.get("menu_csv"),
-                                                          self.loc.get("menu_edit_admins")])
+            selection = self.__wait_for_specific_message(valid_selections)
             # If the user has selected the Products option and has the privileges to perform the action...
             if selection == self.loc.get("menu_products") and self.admin.edit_products:
                 # Open the products menu
@@ -952,6 +994,16 @@ class Worker(threading.Thread):
             elif selection == self.loc.get("menu_csv") and self.admin.create_transactions:
                 # Generate the .csv file
                 self.__transactions_file()
+            # Swap admin panel options
+            elif (self.swap_engine is not None and self.admin.is_owner
+                  and selection == self.loc.get("menu_admin_swap_panel")):
+                self.__admin_swap_panel()
+            elif (self.swap_engine is not None and self.admin.is_owner
+                  and selection == self.loc.get("menu_admin_fee_summary")):
+                self.__admin_fee_summary()
+            elif (self.swap_engine is not None and self.admin.is_owner
+                  and selection == self.loc.get("menu_admin_deposit")):
+                self.__admin_deposit_panel()
 
     def __products_menu(self):
         """Display the admin menu to select a product to edit."""
@@ -1531,6 +1583,362 @@ class Worker(threading.Thread):
                 "today": datetime.datetime.now().strftime("%a %d %b %Y"),
             }
         )
+
+    # ==================================================================
+    # CRYPTO SWAP METHODS
+    # ==================================================================
+
+    def __swap_menu(self):
+        """Full swap flow: select source → select dest → enter amount → show quote → confirm."""
+        log.debug("Displaying __swap_menu")
+        currencies = self.swap_engine.get_supported_currencies()
+
+        # Step 1: Select source currency
+        keyboard = [[telegram.KeyboardButton(c)] for c in currencies]
+        keyboard.append([telegram.KeyboardButton(self.loc.get("menu_cancel"))])
+        self.bot.send_message(
+            self.chat.id,
+            self.loc.get("swap_select_source"),
+            reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True),
+        )
+        src = self.__wait_for_specific_message(currencies, cancellable=True)
+        if isinstance(src, CancelSignal):
+            return
+
+        # Step 2: Select destination currency
+        dest_currencies = [c for c in currencies if c != src]
+        keyboard = [[telegram.KeyboardButton(c)] for c in dest_currencies]
+        keyboard.append([telegram.KeyboardButton(self.loc.get("menu_cancel"))])
+        self.bot.send_message(
+            self.chat.id,
+            self.loc.get("swap_select_destination", source=src),
+            reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True),
+        )
+        dst = self.__wait_for_specific_message(dest_currencies, cancellable=True)
+        if isinstance(dst, CancelSignal):
+            return
+
+        # Step 3: Enter amount
+        self.bot.send_message(
+            self.chat.id,
+            self.loc.get("swap_enter_amount", source=src, destination=dst),
+            reply_markup=telegram.ReplyKeyboardRemove(),
+        )
+        amount_str = self.__wait_for_regex(r"^\d+(\.\d+)?$", cancellable=True)
+        if isinstance(amount_str, CancelSignal):
+            return
+        try:
+            amount = utils.parse_decimal(amount_str)
+        except ValueError:
+            self.bot.send_message(self.chat.id, self.loc.get("error_invalid_amount"))
+            return
+
+        # Step 4: Generate and display quote
+        try:
+            quote = self.swap_engine.generate_quote(src, dst, amount)
+        except Exception as exc:
+            self.bot.send_message(
+                self.chat.id,
+                self.loc.get("error_price_fetch_failed", error=str(exc)),
+            )
+            return
+
+        quote_text = self.loc.get(
+            "swap_confirm_quote",
+            source_amount=utils.format_crypto_amount(quote["source_amount"], src),
+            destination_amount=utils.format_crypto_amount(quote["destination_amount"], dst),
+            exchange_rate=f"1 {src} = {utils.format_crypto(quote['exchange_rate'], 8)} {dst}",
+            fee_amount=utils.format_crypto_amount(quote["fee_amount"], dst),
+            expires_in=self.swap_engine._quote_timeout,
+        )
+        keyboard = [
+            [telegram.KeyboardButton(self.loc.get("swap_confirm"))],
+            [telegram.KeyboardButton(self.loc.get("menu_cancel"))],
+        ]
+        self.bot.send_message(
+            self.chat.id,
+            quote_text,
+            reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True),
+        )
+        confirmation = self.__wait_for_specific_message(
+            [self.loc.get("swap_confirm"), self.loc.get("menu_cancel")],
+            cancellable=True,
+        )
+        if isinstance(confirmation, CancelSignal) or confirmation == self.loc.get("menu_cancel"):
+            self.bot.send_message(self.chat.id, self.loc.get("swap_cancelled"))
+            return
+
+        # Step 5: Execute swap
+        try:
+            swap_order = self.swap_engine.execute_swap(
+                user_id=self.user.user_id,
+                src=src,
+                dst=dst,
+                amount=amount,
+                quoted_rate=quote["exchange_rate"],
+            )
+            self.bot.send_message(
+                self.chat.id,
+                self.loc.get(
+                    "swap_success",
+                    swap_id=swap_order.swap_id,
+                    source_amount=utils.format_crypto_amount(amount, src),
+                    destination_amount=utils.format_crypto_amount(
+                        Decimal(swap_order.destination_amount), dst
+                    ),
+                    fee_amount=utils.format_crypto_amount(
+                        Decimal(swap_order.fee_amount), dst
+                    ),
+                ),
+            )
+        except Exception as exc:
+            log.error(f"Swap execution failed: {exc}")
+            self.bot.send_message(
+                self.chat.id,
+                self.loc.get("swap_failed", error=str(exc)),
+            )
+
+    def __wallet_menu(self):
+        """Show user's crypto balances with deposit sub-flow."""
+        log.debug("Displaying __wallet_menu")
+        wallets = self.swap_engine.get_user_wallets(self.user.user_id)
+
+        if wallets:
+            balance_lines = "\n".join(
+                f"• {w.currency}: {utils.format_crypto_amount(w.get_balance(), w.currency)}"
+                for w in wallets
+            )
+        else:
+            balance_lines = self.loc.get("wallet_no_balances")
+
+        keyboard = [
+            [telegram.KeyboardButton(self.loc.get("wallet_deposit"))],
+            [telegram.KeyboardButton(self.loc.get("menu_cancel"))],
+        ]
+        self.bot.send_message(
+            self.chat.id,
+            self.loc.get("wallet_balance_header", balances=balance_lines),
+            reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True),
+        )
+        selection = self.__wait_for_specific_message(
+            [self.loc.get("wallet_deposit"), self.loc.get("menu_cancel")],
+            cancellable=True,
+        )
+        if isinstance(selection, CancelSignal) or selection == self.loc.get("menu_cancel"):
+            return
+
+        # Deposit sub-flow: show deposit address for selected currency
+        currencies = self.swap_engine.get_supported_currencies()
+        keyboard = [[telegram.KeyboardButton(c)] for c in currencies]
+        keyboard.append([telegram.KeyboardButton(self.loc.get("menu_cancel"))])
+        self.bot.send_message(
+            self.chat.id,
+            self.loc.get("wallet_select_currency_deposit"),
+            reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True),
+        )
+        currency = self.__wait_for_specific_message(currencies, cancellable=True)
+        if isinstance(currency, CancelSignal):
+            return
+
+        address = self.swap_engine.get_deposit_address(currency)
+        if address:
+            self.bot.send_message(
+                self.chat.id,
+                self.loc.get("wallet_deposit_address", currency=currency, address=address),
+            )
+        else:
+            self.bot.send_message(
+                self.chat.id,
+                self.loc.get("wallet_no_deposit_address", currency=currency),
+            )
+
+    def __prices_menu(self):
+        """Display current cryptocurrency prices."""
+        log.debug("Displaying __prices_menu")
+        try:
+            prices = self.swap_engine.get_all_prices_usd()
+            lines = "\n".join(
+                f"• {symbol}: {utils.format_usd(price)}"
+                for symbol, price in sorted(prices.items())
+            )
+            self.bot.send_message(
+                self.chat.id,
+                self.loc.get("prices_header", prices=lines),
+            )
+        except Exception as exc:
+            log.error(f"Failed to fetch prices: {exc}")
+            self.bot.send_message(
+                self.chat.id,
+                self.loc.get("error_price_fetch_failed", error=str(exc)),
+            )
+
+    def __swap_history_menu(self):
+        """Show paginated swap history for the current user."""
+        log.debug("Displaying __swap_history_menu")
+        page_size = 5
+        offset = 0
+        while True:
+            swaps = self.swap_engine.get_user_swaps(
+                self.user.user_id, limit=page_size, offset=offset
+            )
+            if not swaps:
+                self.bot.send_message(
+                    self.chat.id,
+                    self.loc.get("swap_history_empty"),
+                )
+                return
+
+            lines = []
+            for swap in swaps:
+                lines.append(
+                    self.loc.get(
+                        "swap_history_entry",
+                        swap_id=swap.swap_id,
+                        source=f"{swap.source_amount} {swap.source_currency}",
+                        destination=f"{swap.destination_amount} {swap.destination_currency}",
+                        status=swap.status,
+                        date=swap.created_at.strftime("%Y-%m-%d %H:%M"),
+                    )
+                )
+
+            keyboard = []
+            nav = []
+            if offset > 0:
+                nav.append(telegram.KeyboardButton(self.loc.get("menu_previous_page")))
+            if len(swaps) == page_size:
+                nav.append(telegram.KeyboardButton(self.loc.get("menu_next_page")))
+            if nav:
+                keyboard.append(nav)
+            keyboard.append([telegram.KeyboardButton(self.loc.get("menu_cancel"))])
+
+            self.bot.send_message(
+                self.chat.id,
+                self.loc.get("swap_history_header", entries="\n".join(lines)),
+                reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True),
+            )
+
+            valid = [self.loc.get("menu_cancel")]
+            if offset > 0:
+                valid.append(self.loc.get("menu_previous_page"))
+            if len(swaps) == page_size:
+                valid.append(self.loc.get("menu_next_page"))
+
+            selection = self.__wait_for_specific_message(valid, cancellable=True)
+            if isinstance(selection, CancelSignal) or selection == self.loc.get("menu_cancel"):
+                return
+            elif selection == self.loc.get("menu_next_page"):
+                offset += page_size
+            elif selection == self.loc.get("menu_previous_page"):
+                offset = max(0, offset - page_size)
+
+    # Admin swap methods
+
+    def __admin_swap_panel(self):
+        """Admin: list all pending swaps."""
+        log.debug("Displaying __admin_swap_panel")
+        pending = self.swap_engine.get_pending_swaps()
+        if not pending:
+            self.bot.send_message(
+                self.chat.id,
+                self.loc.get("admin_no_pending_swaps"),
+            )
+            return
+        lines = []
+        for swap in pending:
+            lines.append(
+                self.loc.get(
+                    "admin_swap_entry",
+                    swap_id=swap.swap_id,
+                    user_id=swap.user_id,
+                    source=f"{swap.source_amount} {swap.source_currency}",
+                    destination=f"{swap.destination_amount} {swap.destination_currency}",
+                    date=swap.created_at.strftime("%Y-%m-%d %H:%M"),
+                )
+            )
+        self.bot.send_message(
+            self.chat.id,
+            self.loc.get("admin_pending_swaps_header", entries="\n".join(lines)),
+        )
+
+    def __admin_fee_summary(self):
+        """Admin: display fee totals per currency."""
+        log.debug("Displaying __admin_fee_summary")
+        summary = self.swap_engine.admin_get_fee_summary()
+        if not summary:
+            self.bot.send_message(
+                self.chat.id,
+                self.loc.get("admin_no_fees_collected"),
+            )
+            return
+        lines = "\n".join(
+            f"• {currency}: {utils.format_crypto_amount(amount, currency)}"
+            for currency, amount in sorted(summary.items())
+        )
+        self.bot.send_message(
+            self.chat.id,
+            self.loc.get("admin_fee_summary_header", lines=lines),
+        )
+
+    def __admin_deposit_panel(self):
+        """Admin: manually credit a user's crypto wallet."""
+        log.debug("Displaying __admin_deposit_panel")
+
+        # Ask for user ID
+        self.bot.send_message(
+            self.chat.id,
+            self.loc.get("admin_deposit_enter_user_id"),
+            reply_markup=telegram.ReplyKeyboardRemove(),
+        )
+        user_id_str = self.__wait_for_regex(r"^\d+$", cancellable=True)
+        if isinstance(user_id_str, CancelSignal):
+            return
+        target_user_id = int(user_id_str)
+
+        # Ask for currency
+        currencies = self.swap_engine.get_supported_currencies()
+        keyboard = [[telegram.KeyboardButton(c)] for c in currencies]
+        keyboard.append([telegram.KeyboardButton(self.loc.get("menu_cancel"))])
+        self.bot.send_message(
+            self.chat.id,
+            self.loc.get("admin_deposit_select_currency"),
+            reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True),
+        )
+        currency = self.__wait_for_specific_message(currencies, cancellable=True)
+        if isinstance(currency, CancelSignal):
+            return
+
+        # Ask for amount
+        self.bot.send_message(
+            self.chat.id,
+            self.loc.get("admin_deposit_enter_amount", currency=currency),
+            reply_markup=telegram.ReplyKeyboardRemove(),
+        )
+        amount_str = self.__wait_for_regex(r"^\d+(\.\d+)?$", cancellable=True)
+        if isinstance(amount_str, CancelSignal):
+            return
+        try:
+            amount = utils.parse_decimal(amount_str)
+        except ValueError:
+            self.bot.send_message(self.chat.id, self.loc.get("error_invalid_amount"))
+            return
+
+        # Execute deposit
+        try:
+            self.swap_engine.deposit_to_wallet(target_user_id, currency, amount)
+            self.bot.send_message(
+                self.chat.id,
+                self.loc.get(
+                    "admin_deposit_success",
+                    amount=utils.format_crypto_amount(amount, currency),
+                    user_id=target_user_id,
+                ),
+            )
+        except Exception as exc:
+            log.error(f"Admin deposit failed: {exc}")
+            self.bot.send_message(
+                self.chat.id,
+                self.loc.get("admin_deposit_failed", error=str(exc)),
+            )
 
     def __graceful_stop(self, stop_trigger: StopSignal):
         """Handle the graceful stop of the thread."""

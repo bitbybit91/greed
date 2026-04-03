@@ -1,5 +1,6 @@
 import logging
 import typing
+from decimal import Decimal
 
 import requests
 import telegram
@@ -305,3 +306,91 @@ class OrderItem(TableDeclarativeBase):
 
     def __repr__(self):
         return f"<OrderItem {self.item_id}>"
+
+
+class CryptoWallet(TableDeclarativeBase):
+    """Per-user, per-currency balance ledger for cryptocurrency holdings."""
+
+    wallet_id = Column(Integer, primary_key=True)
+    user_id = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    currency = Column(String(10), nullable=False)
+    # Balance stored as string to avoid float precision issues; use Decimal in code
+    balance = Column(String, nullable=False, default="0")
+    created_at = Column(DateTime, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+
+    user = relationship("User", backref="crypto_wallets")
+
+    __tablename__ = "crypto_wallets"
+    __table_args__ = (UniqueConstraint("user_id", "currency"),)
+
+    def get_balance(self) -> Decimal:
+        """Return the balance as a Decimal."""
+        return Decimal(self.balance)
+
+    def set_balance(self, value: Decimal):
+        """Store a Decimal balance as a string."""
+        self.balance = str(value)
+
+    def __repr__(self):
+        return f"<CryptoWallet user={self.user_id} currency={self.currency} balance={self.balance}>"
+
+
+class SwapOrder(TableDeclarativeBase):
+    """Records every cryptocurrency swap performed by a user."""
+
+    swap_id = Column(Integer, primary_key=True)
+    user_id = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    source_currency = Column(String(10), nullable=False)
+    destination_currency = Column(String(10), nullable=False)
+    # Monetary values stored as strings for Decimal precision
+    source_amount = Column(String, nullable=False)
+    destination_amount = Column(String, nullable=False)
+    exchange_rate = Column(String, nullable=False)
+    fee_amount = Column(String, nullable=False)
+    fee_currency = Column(String(10), nullable=False)
+    status = Column(String(20), nullable=False, default="pending")
+    created_at = Column(DateTime, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+    operator_fee_address = Column(String(256), nullable=True)
+
+    user = relationship("User", backref="swap_orders")
+
+    __tablename__ = "swap_orders"
+
+    def __repr__(self):
+        return (f"<SwapOrder {self.swap_id} {self.source_currency}->{self.destination_currency}"
+                f" status={self.status}>")
+
+
+class FeeCollection(TableDeclarativeBase):
+    """Tracks fees earned by the operator from each swap."""
+
+    fee_id = Column(Integer, primary_key=True)
+    swap_id = Column(Integer, ForeignKey("swap_orders.swap_id"), nullable=False)
+    currency = Column(String(10), nullable=False)
+    amount = Column(String, nullable=False)
+    operator_address = Column(String(256), nullable=True)
+    created_at = Column(DateTime, nullable=False)
+
+    swap = relationship("SwapOrder", backref="fee_collections")
+
+    __tablename__ = "fee_collections"
+
+    def __repr__(self):
+        return f"<FeeCollection fee_id={self.fee_id} currency={self.currency} amount={self.amount}>"
+
+
+class PriceCache(TableDeclarativeBase):
+    """Stores last-known prices for fallback when the CoinGecko API is unavailable."""
+
+    id = Column(Integer, primary_key=True)
+    coin_id = Column(String(50), nullable=False)
+    currency = Column(String(10), nullable=False)
+    price_usd = Column(String, nullable=False)
+    timestamp = Column(DateTime, nullable=False)
+
+    __tablename__ = "price_cache"
+
+    def __repr__(self):
+        return f"<PriceCache coin={self.coin_id} price={self.price_usd}>"

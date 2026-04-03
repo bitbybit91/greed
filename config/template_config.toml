@@ -122,3 +122,89 @@ format = "{asctime} | {threadName} | {name} | {message}"
 # Logging level: ignore all log entries with a level lower than the specified one
 # Valid options are FATAL, ERROR, WARNING, INFO, and DEBUG
 level = "INFO"
+
+# ============================================================
+# CRYPTOCURRENCY SWAP SETTINGS
+# ============================================================
+
+[CryptoSwap]
+# Master switch — set to true to enable all swap features
+enabled = true
+
+# Quote currency for price display (usually "usd")
+quote_currency = "usd"
+
+# CoinGecko free API (no key needed)
+price_api_url = "https://api.coingecko.com/api/v3/simple/price"
+# Cache prices for this many seconds (CoinGecko free tier: ~30 req/min)
+price_cache_ttl = 30
+
+# Swap fee percentage taken by the bot operator
+fee_percentage = 2.0
+
+# How long a swap quote stays valid (seconds) before expiring
+quote_timeout = 60
+
+# Minimum swap amount in USD equivalent
+min_swap_usd = 1.0
+# Maximum swap amount in USD equivalent
+max_swap_usd = 50000.0
+
+# Supported cryptocurrencies
+# These must match CoinGecko coin IDs for pricing
+# Format: symbol = "coingecko_id"
+[CryptoSwap.Coins]
+BTC = "bitcoin"
+ETH = "ethereum"
+USDT = "tether"
+SOL = "solana"
+DOGE = "dogecoin"
+LTC = "litecoin"
+XRP = "ripple"
+BNB = "binancecoin"
+ADA = "cardano"
+DOT = "polkadot"
+
+# ============================================================
+# OPERATOR'S RECEIVING ADDRESSES FOR FEE COLLECTION
+# ============================================================
+[CryptoSwap.FeeAddresses]
+BTC = "YOUR_BTC_ADDRESS_HERE"
+ETH = "YOUR_ETH_ADDRESS_HERE"
+USDT = "YOUR_USDT_ADDRESS_HERE"
+SOL = "YOUR_SOL_ADDRESS_HERE"
+DOGE = "YOUR_DOGE_ADDRESS_HERE"
+LTC = "YOUR_LTC_ADDRESS_HERE"
+XRP = "YOUR_XRP_ADDRESS_HERE"
+BNB = "YOUR_BNB_ADDRESS_HERE"
+ADA = "YOUR_ADA_ADDRESS_HERE"
+DOT = "YOUR_DOT_ADDRESS_HERE"
+
+# ============================================================
+# DEPOSIT ADDRESSES SHOWN TO USERS
+# ============================================================
+[CryptoSwap.DepositAddresses]
+BTC = "YOUR_BTC_DEPOSIT_ADDRESS"
+ETH = "YOUR_ETH_DEPOSIT_ADDRESS"
+USDT = "YOUR_USDT_DEPOSIT_ADDRESS"
+SOL = "YOUR_SOL_DEPOSIT_ADDRESS"
+DOGE = "YOUR_DOGE_DEPOSIT_ADDRESS"
+LTC = "YOUR_LTC_DEPOSIT_ADDRESS"
+XRP = "YOUR_XRP_DEPOSIT_ADDRESS"
+BNB = "YOUR_BNB_DEPOSIT_ADDRESS"
+ADA = "YOUR_ADA_DEPOSIT_ADDRESS"
+DOT = "YOUR_DOT_DEPOSIT_ADDRESS"
+
+# ============================================================
+# MULTI-BOT CONFIGURATION (optional)
+# ============================================================
+# [Bots]
+# [Bots.main]
+# token = "111111111:FIRST_BOT_TOKEN"
+# enabled = true
+# name = "Main Swap Bot"
+#
+# [Bots.secondary]
+# token = "222222222:SECOND_BOT_TOKEN"
+# enabled = false
+# name = "Secondary Bot"
