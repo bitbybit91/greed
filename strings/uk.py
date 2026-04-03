@@ -426,3 +426,72 @@ error_user_does_not_exist = "⚠️  Такого користувача не і
 fatal_conversation_exception = "☢️ Ой лишенько! <b>Помилка</b> перервала нашу розмову\n" \
                                "Про помилку було повідомлено власника бота.\n" \
                                "Щоб почати розмову знову, надішліть команду /start."
+
+# ============================================================
+# CRYPTO SWAP STRINGS (English placeholders)
+# ============================================================
+
+# Menu buttons
+menu_swap = "🔄 Swap"
+menu_wallet = "👛 Wallet"
+menu_prices = "📈 Prices"
+menu_swap_history = "📜 Swap History"
+menu_admin_swap_panel = "🔄 Swap Panel"
+menu_admin_fee_summary = "💰 Fee Summary"
+menu_admin_deposit = "⬆️ Manual Deposit"
+menu_previous_page = "⬅️ Previous"
+menu_next_page = "➡️ Next"
+
+# Swap flow
+swap_select_source = "🔄 <b>Swap</b>\n\nSelect the cryptocurrency you want to swap <b>from</b>:"
+swap_select_destination = "🔄 <b>Swap</b>\n\nYou're swapping <b>{source}</b>.\nNow select the cryptocurrency you want to swap <b>to</b>:"
+swap_enter_amount = "🔄 <b>Swap {source} → {destination}</b>\n\nEnter the amount of <b>{source}</b> you want to swap:"
+swap_confirm_quote = "🔄 <b>Swap Quote</b>\n\n" \
+                     "You send: <b>{source_amount}</b>\n" \
+                     "You receive: <b>{destination_amount}</b>\n" \
+                     "Rate: {exchange_rate}\n" \
+                     "Fee: <b>{fee_amount}</b>\n\n" \
+                     "⏱ This quote expires in <b>{expires_in} seconds</b>.\n\n" \
+                     "Do you want to confirm this swap?"
+swap_confirm = "✅ Confirm Swap"
+swap_success = "✅ <b>Swap #{swap_id} completed!</b>\n\n" \
+               "Sent: <b>{source_amount}</b>\n" \
+               "Received: <b>{destination_amount}</b>\n" \
+               "Fee paid: <b>{fee_amount}</b>"
+swap_failed = "❌ <b>Swap failed</b>\n\nReason: {error}"
+swap_cancelled = "❌ Swap cancelled."
+
+# Wallet strings
+wallet_balance_header = "👛 <b>Your Crypto Wallet</b>\n\n{balances}"
+wallet_no_balances = "<i>No balances yet. Make a deposit to get started.</i>"
+wallet_deposit = "⬇️ Deposit"
+wallet_select_currency_deposit = "Select a currency to deposit:"
+wallet_deposit_address = "📥 <b>Deposit {currency}</b>\n\nSend your {currency} to:\n<code>{address}</code>\n\n<i>Your balance will be credited after manual verification by the operator.</i>"
+wallet_no_deposit_address = "⚠️ No deposit address configured for {currency}."
+
+# Prices
+prices_header = "📈 <b>Live Crypto Prices (USD)</b>\n\n{prices}\n\n<i>Prices from CoinGecko. Updated every 30s.</i>"
+
+# Swap history
+swap_history_header = "📜 <b>Your Swap History</b>\n\n{entries}"
+swap_history_empty = "📜 You haven't made any swaps yet."
+swap_history_entry = "• <b>#{swap_id}</b> {source} → {destination} | {status} | {date}"
+
+# Admin swap strings
+admin_pending_swaps_header = "🔄 <b>Pending Swaps</b>\n\n{entries}"
+admin_no_pending_swaps = "✅ No pending swaps."
+admin_swap_entry = "• <b>#{swap_id}</b> User {user_id} | {source} → {destination} | {date}"
+admin_no_fees_collected = "💰 No fees collected yet."
+admin_fee_summary_header = "💰 <b>Fee Summary</b>\n\n{lines}"
+admin_deposit_enter_user_id = "Enter the <b>user ID</b> to deposit funds to:"
+admin_deposit_select_currency = "Select the <b>currency</b> to deposit:"
+admin_deposit_enter_amount = "Enter the <b>amount</b> of {currency} to deposit:"
+admin_deposit_success = "✅ Successfully deposited <b>{amount}</b> to user <b>{user_id}</b>."
+admin_deposit_failed = "❌ Deposit failed: {error}"
+
+# Error strings
+error_insufficient_crypto_balance = "⚠️ Insufficient {currency} balance. Available: {available}, required: {required}."
+error_pair_not_supported = "⚠️ The trading pair {source}/{destination} is not supported."
+error_price_fetch_failed = "⚠️ Could not fetch current prices: {error}\nPlease try again in a moment."
+error_swap_expired = "⚠️ Your swap quote has expired. Please start a new swap."
+error_invalid_amount = "⚠️ Invalid amount. Please enter a positive number (e.g. 0.5 or 100)."

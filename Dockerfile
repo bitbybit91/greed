@@ -1,5 +1,5 @@
 FROM python:3.10-alpine AS dependencies
-RUN apk add --update build-base python3-dev py-pip musl-dev
+RUN apk add --update build-base python3-dev py-pip musl-dev libffi-dev openssl-dev
 
 WORKDIR /usr/src/greed
 COPY ./requirements.txt ./requirements.txt
@@ -22,7 +22,7 @@ ENV CONFIG_PATH="/etc/greed/config.toml"
 ENV DB_ENGINE="sqlite:////var/lib/greed/database.sqlite"
 
 LABEL org.opencontainers.image.title="greed"
-LABEL org.opencontainers.image.description="A customizable, multilanguage Telegram shop bot"
+LABEL org.opencontainers.image.description="A customizable, multilanguage Telegram crypto swap bot"
 LABEL org.opencontainers.image.licenses="AGPL-3.0-or-later"
 LABEL org.opencontainers.image.url="https://github.com/Steffo99/greed/"
 LABEL org.opencontainers.image.authors="Stefano Pigozzi <me@steffo.eu>"
