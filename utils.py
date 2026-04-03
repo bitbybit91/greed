@@ -25,14 +25,14 @@ CRYPTO_DECIMALS = {
 
 
 def format_crypto(amount: Decimal, decimals: int = 8) -> str:
-    """Format a Decimal crypto amount, stripping trailing zeros."""
+    """Format a Decimal crypto amount, stripping trailing zeros but keeping at least 2 decimal places."""
     formatted = f"{amount:.{decimals}f}"
-    # Strip trailing zeros after decimal point, but keep at least 2 decimal places
     if "." in formatted:
         formatted = formatted.rstrip("0")
-        if formatted.endswith("."):
+        decimal_part = formatted.split(".")[1] if "." in formatted else ""
+        if not decimal_part:
             formatted += "00"
-        elif len(formatted.split(".")[1]) < 2:
+        elif len(decimal_part) < 2:
             formatted += "0"
     return formatted
 

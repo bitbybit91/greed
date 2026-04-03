@@ -198,6 +198,11 @@ class SwapEngine:
         """Return the operator fee address for a currency."""
         return self._fee_addresses.get(currency.upper())
 
+    @property
+    def quote_timeout(self) -> int:
+        """How long a swap quote remains valid, in seconds."""
+        return self._quote_timeout
+
     def _symbol_to_cg(self, symbol: str) -> str:
         cg_id = self._symbol_to_coingecko.get(symbol.upper())
         if cg_id is None:

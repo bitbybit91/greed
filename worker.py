@@ -1649,7 +1649,7 @@ class Worker(threading.Thread):
             destination_amount=utils.format_crypto_amount(quote["destination_amount"], dst),
             exchange_rate=f"1 {src} = {utils.format_crypto(quote['exchange_rate'], 8)} {dst}",
             fee_amount=utils.format_crypto_amount(quote["fee_amount"], dst),
-            expires_in=self.swap_engine._quote_timeout,
+            expires_in=self.swap_engine.quote_timeout,
         )
         keyboard = [
             [telegram.KeyboardButton(self.loc.get("swap_confirm"))],
