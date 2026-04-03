@@ -30,8 +30,12 @@ engine = "sqlite:///database.sqlite"
 
 
 # Telegram bot parameters
+# NOTE: For single-bot deployments, set token here.
+# For multi-bot deployments, leave token as the placeholder and configure
+# each bot under the [Bots.*] sections below instead.
 [Telegram]
 # Your bot token goes here. Get one from https://t.me/BotFather!
+# DEPRECATED for multi-bot mode — configure tokens under [Bots.*] instead.
 token = "123456789:YOUR_TOKEN_GOES_HERE_______________"
 # Time in seconds before a conversation (thread) with no new messages expires
 # A lower value reduces memory usage, but can be inconvenient for the users
@@ -122,3 +126,81 @@ format = "{asctime} | {threadName} | {name} | {message}"
 # Logging level: ignore all log entries with a level lower than the specified one
 # Valid options are FATAL, ERROR, WARNING, INFO, and DEBUG
 level = "INFO"
+
+
+# ---------------------------------------------------------------------------
+# Crypto Swap settings
+# ---------------------------------------------------------------------------
+[CryptoSwap]
+# Enable or disable the crypto swap feature entirely
+enabled = true
+
+# List of cryptocurrency symbols that users can swap between
+# The bot will show only these currencies in the swap UI
+enabled_currencies = ["BTC", "ETH", "USDT", "LTC", "XMR", "DASH", "DAI", "USDC", "BTCLN"]
+
+# URL of the price API endpoint.
+# Default is Binance's ticker/price endpoint.
+# Replace with your preferred provider (CoinGecko, Kraken, etc.)
+price_api_url = "https://api.binance.com/api/v3/ticker/price"
+
+# API key for the price provider (leave empty if not required)
+price_api_key = ""
+
+# How long (in seconds) to cache fetched prices before re-fetching
+# Lower values are more accurate but increase API call frequency
+price_cache_ttl = 60
+
+# Default fee percentage applied to swaps when no pair-specific fee is set
+# Example: 0.5 means 0.5% of the source amount is charged as a fee
+default_fee_percentage = 0.5
+
+# Minimum swap amount (in source currency units)
+# Swaps below this threshold will be rejected
+min_swap_amount = 0.00001
+
+# Maximum swap amount (in source currency units)
+# Swaps above this threshold will be rejected
+max_swap_amount = 10.0
+
+# Number of seconds a quoted price remains valid for confirmation.
+# After this window, the user must request a fresh quote.
+swap_confirmation_timeout = 60
+
+# Wallet deposit addresses per supported currency (optional).
+# If provided, these are shown to users in the Wallet -> Deposit menu.
+# Example:
+#   [CryptoSwap.deposit_addresses]
+#   BTC = "bc1qexampleaddress..."
+#   ETH = "0xExampleAddress..."
+[CryptoSwap.deposit_addresses]
+BTC = ""
+ETH = ""
+USDT = ""
+LTC = ""
+XMR = ""
+DASH = ""
+DAI = ""
+USDC = ""
+BTCLN = ""
+
+
+# ---------------------------------------------------------------------------
+# Multi-bot configuration  (optional)
+# ---------------------------------------------------------------------------
+# To run multiple Telegram bots from the same greed instance, define one
+# sub-section per bot under [Bots].  The bot manager will pick these up
+# automatically.  Leave this section empty (or omit it) to use the single-bot
+# token defined in [Telegram] above.
+#
+# Example:
+#   [Bots.swap_bot]
+#   token   = "111111111:AAA..."
+#   name    = "Crypto Swap Bot"
+#   enabled = true
+#
+#   [Bots.shop_bot]
+#   token   = "222222222:BBB..."
+#   name    = "Shop Bot"
+#   enabled = true
+

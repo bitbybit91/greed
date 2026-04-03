@@ -17,3 +17,9 @@ six==1.16.0
 tornado==6.3.3
 tzlocal==2.1
 urllib3==1.26.18
+
+# Crypto swap dependencies
+# HTTP client for price API calls (already available via requests above)
+# Decimal arithmetic is part of the Python standard library
+# schedule: lightweight job scheduler for periodic price cache refresh
+schedule==1.2.1

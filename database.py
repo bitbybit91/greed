@@ -1,10 +1,11 @@
+import datetime
 import logging
 import typing
 
 import requests
 import telegram
 from sqlalchemy import Column, ForeignKey, UniqueConstraint
-from sqlalchemy import Integer, BigInteger, String, Text, LargeBinary, DateTime, Boolean
+from sqlalchemy import Integer, BigInteger, String, Text, LargeBinary, DateTime, Boolean, Float, Numeric
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, backref
 
@@ -305,3 +306,89 @@ class OrderItem(TableDeclarativeBase):
 
     def __repr__(self):
         return f"<OrderItem {self.item_id}>"
+
+
+# ---------------------------------------------------------------------------
+# Crypto-swap models
+# ---------------------------------------------------------------------------
+
+class CryptoWallet(TableDeclarativeBase):
+    """A per-user, per-currency crypto wallet record."""
+
+    wallet_id = Column(Integer, primary_key=True)
+    user_id = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    user = relationship("User", backref=backref("crypto_wallets"))
+    # Currency symbol, e.g. BTC, ETH, USDT
+    currency = Column(String, nullable=False)
+    # Balance in the smallest representable unit stored as a decimal string for precision
+    balance = Column(Numeric(precision=36, scale=18), nullable=False, default=0)
+    # Deposit address for this currency
+    deposit_address = Column(String)
+    created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow,
+                        onupdate=datetime.datetime.utcnow)
+
+    __tablename__ = "crypto_wallets"
+    __table_args__ = (UniqueConstraint("user_id", "currency"),)
+
+    def __repr__(self):
+        return f"<CryptoWallet user={self.user_id} {self.currency} balance={self.balance}>"
+
+
+class SwapOrder(TableDeclarativeBase):
+    """A recorded crypto swap transaction."""
+
+    swap_id = Column(Integer, primary_key=True)
+    user_id = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    user = relationship("User", backref=backref("swap_orders"))
+    source_currency = Column(String, nullable=False)
+    destination_currency = Column(String, nullable=False)
+    source_amount = Column(Numeric(precision=36, scale=18), nullable=False)
+    destination_amount = Column(Numeric(precision=36, scale=18))
+    exchange_rate = Column(Numeric(precision=36, scale=18))
+    fee_amount = Column(Numeric(precision=36, scale=18))
+    # Status: pending / completed / failed / cancelled
+    status = Column(String, nullable=False, default="pending")
+    created_at = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    completed_at = Column(DateTime)
+    # On-chain transaction hash (optional, for blockchain-based swaps)
+    tx_hash = Column(String)
+
+    __tablename__ = "swap_orders"
+
+    def __repr__(self):
+        return (f"<SwapOrder {self.swap_id} {self.source_currency}->{self.destination_currency}"
+                f" {self.source_amount} status={self.status}>")
+
+
+class SupportedPair(TableDeclarativeBase):
+    """A configurable trading pair available for swaps."""
+
+    pair_id = Column(Integer, primary_key=True)
+    base_currency = Column(String, nullable=False)
+    quote_currency = Column(String, nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    min_amount = Column(Numeric(precision=36, scale=18))
+    max_amount = Column(Numeric(precision=36, scale=18))
+    fee_percentage = Column(Float, nullable=False, default=0.5)
+
+    __tablename__ = "supported_pairs"
+    __table_args__ = (UniqueConstraint("base_currency", "quote_currency"),)
+
+    def __repr__(self):
+        return f"<SupportedPair {self.base_currency}/{self.quote_currency} active={self.is_active}>"
+
+
+class PriceHistory(TableDeclarativeBase):
+    """Cached price data for trading pairs."""
+
+    id = Column(Integer, primary_key=True)
+    # Pair string, e.g. "BTC/USDT"
+    pair = Column(String, nullable=False, index=True)
+    price = Column(Numeric(precision=36, scale=18), nullable=False)
+    timestamp = Column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+
+    __tablename__ = "price_history"
+
+    def __repr__(self):
+        return f"<PriceHistory {self.pair}={self.price} at {self.timestamp}>"
