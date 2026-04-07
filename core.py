@@ -6,6 +6,7 @@ import sqlalchemy
 import sqlalchemy.ext.declarative as sed
 import telegram
 
+import bot_manager
 import database
 import duckbot
 import localization
@@ -82,6 +83,24 @@ def main():
     else:
         db_engine = user_cfg["Database"]["engine"]
         log.debug("Using sqlalchemy engine set in the configuration file.")
+
+    # Check if multi-bot mode is configured
+    bots_cfg = user_cfg.data.get("Bots", {})
+    has_enabled_bots = any(
+        isinstance(section, dict) and section.get("enabled", False)
+        for section in bots_cfg.values()
+    )
+
+    if has_enabled_bots:
+        # --- Multi-bot mode ---
+        # Each bot gets its own database engine, tables, and swap engine.
+        log.info("Multi-bot mode: [Bots] section found with enabled bots.")
+        manager = bot_manager.BotManager(cfg=user_cfg, fallback_db_uri=db_engine)
+        manager.build_from_config()
+        manager.start_all()
+        return
+
+    # --- Single-bot mode (backward compatible) ---
 
     # Create the database engine
     log.debug("Creating the sqlalchemy engine...")

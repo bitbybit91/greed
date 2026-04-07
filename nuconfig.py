@@ -6,6 +6,10 @@ import toml
 log = logging.getLogger(__name__)
 CompareReport = Dict[str, Union[str, List[str], "Missing"]]
 
+# Top-level sections that are optional in the user config.
+# If these exist in the template but not in the user config, they are silently skipped.
+_OPTIONAL_TOP_LEVEL_SECTIONS = {"Bots"}
+
 
 class NuConfig:
     def __init__(self, file: "TextIO"):
@@ -39,7 +43,9 @@ class NuConfig:
         """Compare two different NuConfig objects and return a dictionary of the keys missing in the other."""
         if not isinstance(other, NuConfig):
             raise TypeError("You can only compare two NuConfig objects.")
-        return self.__compare_recurse(self.data, other.data)
+        # Filter out optional top-level sections before comparing
+        filtered_self = {k: v for k, v in self.data.items() if k not in _OPTIONAL_TOP_LEVEL_SECTIONS}
+        return self.__compare_recurse(filtered_self, other.data)
 
     @staticmethod
     def __compare_miss(self: dict) -> CompareReport:

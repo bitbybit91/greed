@@ -133,6 +133,8 @@ class Product(TableDeclarativeBase):
             msg = w.bot.send_message(chat_id, self.text(w))
         else:
             msg = w.bot.send_photo(chat_id, self.image, caption=self.text(w))
+        if msg is None:
+            return None
         return msg.to_dict()
 
     def set_image(self, file: telegram.File):

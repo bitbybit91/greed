@@ -122,3 +122,50 @@ format = "{asctime} | {threadName} | {name} | {message}"
 # Logging level: ignore all log entries with a level lower than the specified one
 # Valid options are FATAL, ERROR, WARNING, INFO, and DEBUG
 level = "INFO"
+
+
+# Multi-bot configuration (optional)
+# Each bot runs with its own database, its own products, users, admins, and orders.
+# If this section is omitted, greed runs in single-bot mode using [Telegram].token and [Database].engine.
+
+[Bots.bot1]
+token = "BOT_1_TOKEN_HERE"
+enabled = true
+name = "ShopBot-1"
+database = "sqlite:///bot1.sqlite"
+
+[Bots.bot2]
+token = "BOT_2_TOKEN_HERE"
+enabled = false
+name = "ShopBot-2"
+database = "sqlite:///bot2.sqlite"
+
+[Bots.bot3]
+token = "BOT_3_TOKEN_HERE"
+enabled = false
+name = "ShopBot-3"
+database = "sqlite:///bot3.sqlite"
+
+[Bots.bot4]
+token = "BOT_4_TOKEN_HERE"
+enabled = false
+name = "ShopBot-4"
+database = "sqlite:///bot4.sqlite"
+
+[Bots.bot5]
+token = "BOT_5_TOKEN_HERE"
+enabled = false
+name = "ShopBot-5"
+database = "sqlite:///bot5.sqlite"
+
+[Bots.bot6]
+token = "BOT_6_TOKEN_HERE"
+enabled = false
+name = "ShopBot-6"
+database = "sqlite:///bot6.sqlite"
+
+[Bots.bot7]
+token = "BOT_7_TOKEN_HERE"
+enabled = false
+name = "ShopBot-7"
+database = "sqlite:///bot7.sqlite"
