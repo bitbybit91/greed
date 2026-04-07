@@ -103,7 +103,7 @@ class Product(TableDeclarativeBase):
     # Product has been deleted
     deleted = Column(Boolean, nullable=False)
     # Which bot this product belongs to (None = main bot, "bot1" = ShopBot-1, etc.)
-bot_id = Column(String, nullable=True, default=None)
+    bot_id = Column(String, nullable=True, default=None)
 
     # Extra table parameters
     __tablename__ = "products"
