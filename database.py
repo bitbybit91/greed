@@ -246,6 +246,12 @@ class Order(TableDeclarativeBase):
     # Linked transaction
     transaction = relationship("Transaction", back_populates="order", uselist=False)
 
+    # Crypto payment fields (nullable so existing orders are unaffected)
+    crypto_currency = Column(String, nullable=True)
+    crypto_amount = Column(String, nullable=True)
+    crypto_tx_hash = Column(String, nullable=True)
+    crypto_payment_address = Column(String, nullable=True)
+
     # Extra table parameters
     __tablename__ = "orders"
 

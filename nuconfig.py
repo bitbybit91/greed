@@ -6,6 +6,9 @@ import toml
 log = logging.getLogger(__name__)
 CompareReport = Dict[str, Union[str, List[str], "Missing"]]
 
+# Top-level sections that are optional and should be skipped during template vs user config comparison
+_OPTIONAL_TOP_LEVEL_SECTIONS = {"CryptoSwap", "Bots"}
+
 
 class NuConfig:
     def __init__(self, file: "TextIO"):
@@ -39,7 +42,7 @@ class NuConfig:
         """Compare two different NuConfig objects and return a dictionary of the keys missing in the other."""
         if not isinstance(other, NuConfig):
             raise TypeError("You can only compare two NuConfig objects.")
-        return self.__compare_recurse(self.data, other.data)
+        return self.__compare_recurse(self.data, other.data, top_level=True)
 
     @staticmethod
     def __compare_miss(self: dict) -> CompareReport:
@@ -59,7 +62,7 @@ class NuConfig:
         return result
 
     @staticmethod
-    def __compare_recurse(self: dict, other: dict) -> CompareReport:
+    def __compare_recurse(self: dict, other: dict, top_level: bool = False) -> CompareReport:
         """The recursive portion of :meth:`.compare`."""
         invalid = []
         missing = []
@@ -67,6 +70,9 @@ class NuConfig:
         result = {}
 
         for key, value in self.items():
+            # Skip optional top-level sections that the user may not have configured
+            if top_level and key in _OPTIONAL_TOP_LEVEL_SECTIONS:
+                continue
             try:
                 other_value = other[key]
             except KeyError:

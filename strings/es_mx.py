@@ -431,3 +431,103 @@ error_user_does_not_exist = "⚠️ El usuario seleccionado no existe."
 fatal_conversation_exception = "☢️ Oh no! Un <b>error</b> ha interrumpido esta conversación\n" \
                                "El error ha sido reportado al propietario del bot para que pueda solucionarlo.\n" \
                                "Para reiniciar la conversación, envía el comando /start nuevamente."
+
+# Menu: buy bitcoin
+menu_buy_bitcoin = "💰 Buy Bitcoin"
+
+# Menu: get a wallet
+menu_get_wallet = "📱 Get a Wallet"
+
+# Buy bitcoin informational text
+buy_bitcoin_text = "💰 <b>Buy Bitcoin</b>\n" \
+                   "\n" \
+                   "Purchase Bitcoin directly from these trusted peer-to-peer exchanges:\n" \
+                   "\n" \
+                   "• <b>LocalCoinSwap</b> — P2P exchange with 300+ payment methods\n" \
+                   "• <b>Paxful</b> — Buy Bitcoin with gift cards, bank transfer, and more\n" \
+                   "\n" \
+                   "Tap a link below to get started:"
+
+# Get wallet informational text
+get_wallet_text = "📱 <b>Get a Crypto Wallet</b>\n" \
+                  "\n" \
+                  "You need a cryptocurrency wallet to receive your purchased coins.\n" \
+                  "We recommend these trusted, non-custodial wallets:\n" \
+                  "\n" \
+                  "• <b>Trust Wallet</b> — Mobile wallet supporting 10M+ assets\n" \
+                  "• <b>Exodus</b> — Beautiful desktop &amp; mobile wallet with built-in exchange\n" \
+                  "\n" \
+                  "Tap a link below to download:"
+
+# Crypto payment: payment method selection
+crypto_payment_method = "💳 <b>Payment Method</b>\n" \
+                        "\n" \
+                        "Choose how to pay for your order:\n" \
+                        "\n" \
+                        "Total: {total_cost}"
+
+# Crypto payment: pay with wallet balance
+crypto_pay_wallet = "💵 Pay with Wallet Balance"
+
+# Crypto payment: pay with BTC
+crypto_pay_btc = "₿ Pay with BTC"
+
+# Crypto payment: pay with LTC
+crypto_pay_ltc = "Ł Pay with LTC"
+
+# Crypto payment: pay with XMR
+crypto_pay_xmr = "ɱ Pay with XMR"
+
+# Crypto payment: pay with USDT-TRC20
+crypto_pay_usdt = "₮ Pay with USDT-TRC20"
+
+# Crypto payment: pay with ZCASH
+crypto_pay_zcash = "Ⓩ Pay with ZCASH"
+
+# Crypto payment: order details with deposit address and countdown
+crypto_payment_message = "📦 <b>Order #{order_id} — Pay with {coin}</b>\n" \
+                         "\n" \
+                         "Send exactly <code>{crypto_amount} {coin}</code> to:\n" \
+                         "\n" \
+                         "<code>{deposit_address}</code>\n" \
+                         "\n" \
+                         "💱 Rate: 1 {coin} = ${crypto_price_usd}\n" \
+                         "💰 Total: ${order_total_usd} = {crypto_amount} {coin}\n" \
+                         "\n" \
+                         "⏳ Time remaining: {minutes}:{seconds}\n" \
+                         "\n" \
+                         "After sending, tap \"✅ I've Paid\" and enter your TX hash."
+
+# Crypto payment: I've paid button
+crypto_paid_button = "✅ I've Paid"
+
+# Crypto payment: cancel button
+crypto_cancel_button = "❌ Cancel"
+
+# Crypto payment: ask for TX hash
+crypto_ask_tx_hash = "Please enter your transaction hash (TX ID):"
+
+# Crypto payment: payment submitted successfully
+crypto_payment_submitted = "✅ Your payment has been submitted for verification.\n" \
+                           "An admin will confirm delivery once the transaction is verified.\n" \
+                           "\n" \
+                           "TX Hash: <code>{tx_hash}</code>"
+
+# Crypto payment: timer expired
+crypto_payment_expired = "⏰ Payment window expired. Please start a new order."
+
+# Crypto payment: admin notification
+crypto_admin_notification = "🔔 <b>New Crypto Payment</b>\n" \
+                            "Order: #{order_id}\n" \
+                            "User: {user_mention}\n" \
+                            "Amount: {crypto_amount} {coin}\n" \
+                            "TX Hash: {tx_hash}\n" \
+                            "Address: {deposit_address}\n" \
+                            "\n" \
+                            "Use /complete_{order_id} to confirm delivery."
+
+# Crypto payment: price fetch error
+crypto_price_error = "⚠️ Unable to fetch current crypto prices. Please try again later."
+
+# Crypto payment: cancelled
+crypto_payment_cancelled = "❌ Crypto payment cancelled."

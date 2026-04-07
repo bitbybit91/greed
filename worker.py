@@ -5,8 +5,10 @@ import logging
 import queue as queuem
 import re
 import threading
+import time
 import traceback
 import uuid
+from decimal import Decimal
 from html import escape
 from typing import *
 
@@ -64,6 +66,8 @@ class Worker(threading.Thread):
         self.invoice_payload = None
         # The price class of this worker.
         self.Price = self.price_factory()
+        # Timestamp of last activity (for idle worker cleanup by BotManager)
+        self.last_activity = time.time()
 
     def __repr__(self):
         return f"<{self.__class__.__qualname__} {self.chat.id}>"
@@ -251,6 +255,8 @@ class Worker(threading.Thread):
         if isinstance(data, StopSignal):
             # Gracefully stop the process
             self.__graceful_stop(data)
+        # Update last activity timestamp
+        self.last_activity = time.time()
         # Return the received update
         return data
 
@@ -449,7 +455,9 @@ class Worker(threading.Thread):
                         [telegram.KeyboardButton(self.loc.get("menu_add_credit"))],
                         [telegram.KeyboardButton(self.loc.get("menu_language"))],
                         [telegram.KeyboardButton(self.loc.get("menu_help")),
-                         telegram.KeyboardButton(self.loc.get("menu_bot_info"))]]
+                         telegram.KeyboardButton(self.loc.get("menu_bot_info"))],
+                        [telegram.KeyboardButton(self.loc.get("menu_buy_bitcoin")),
+                         telegram.KeyboardButton(self.loc.get("menu_get_wallet"))]]
             # Send the previously created keyboard to the user (ensuring it can be clicked only 1 time)
             self.bot.send_message(self.chat.id,
                                   self.loc.get("conversation_open_user_menu",
@@ -463,6 +471,8 @@ class Worker(threading.Thread):
                 self.loc.get("menu_language"),
                 self.loc.get("menu_help"),
                 self.loc.get("menu_bot_info"),
+                self.loc.get("menu_buy_bitcoin"),
+                self.loc.get("menu_get_wallet"),
             ])
             # After the user reply, update the user data
             self.update_user()
@@ -490,6 +500,36 @@ class Worker(threading.Thread):
             elif selection == self.loc.get("menu_help"):
                 # Go to the Help menu
                 self.__help_menu()
+            # If the user has selected the Buy Bitcoin option...
+            elif selection == self.loc.get("menu_buy_bitcoin"):
+                self.__buy_bitcoin()
+            # If the user has selected the Get a Wallet option...
+            elif selection == self.loc.get("menu_get_wallet"):
+                self.__get_wallet()
+
+    def __buy_bitcoin(self):
+        """Display information about buying Bitcoin with external links."""
+        log.debug("Displaying __buy_bitcoin")
+        inline_keyboard = telegram.InlineKeyboardMarkup([
+            [telegram.InlineKeyboardButton("Buy on LocalCoinSwap",
+                                           url="https://localcoinswap.com/")],
+            [telegram.InlineKeyboardButton("Buy on Paxful",
+                                           url="https://paxful.com/")]
+        ])
+        self.bot.send_message(self.chat.id, self.loc.get("buy_bitcoin_text"),
+                              reply_markup=inline_keyboard)
+
+    def __get_wallet(self):
+        """Display information about getting a crypto wallet with external links."""
+        log.debug("Displaying __get_wallet")
+        inline_keyboard = telegram.InlineKeyboardMarkup([
+            [telegram.InlineKeyboardButton("Trust Wallet (Mobile)",
+                                           url="https://trustwallet.com/")],
+            [telegram.InlineKeyboardButton("Exodus Wallet (Desktop & Mobile)",
+                                           url="https://www.exodus.com/")]
+        ])
+        self.bot.send_message(self.chat.id, self.loc.get("get_wallet_text"),
+                              reply_markup=inline_keyboard)
 
     def __order_menu(self):
         """User menu to order products from the shop."""
@@ -654,6 +694,61 @@ class Worker(threading.Thread):
                 order_item = db.OrderItem(product=cart[product][0],
                                           order=order)
                 self.session.add(order_item)
+        # Flush to get an order_id without committing
+        self.session.flush()
+        # Check if crypto swap is enabled and show payment method selection
+        crypto_enabled = False
+        try:
+            crypto_enabled = self.cfg["CryptoSwap"]["enabled"]
+        except (KeyError, TypeError):
+            pass
+
+        if crypto_enabled:
+            # Show payment method selection with crypto options
+            cart_value = self.__get_cart_value(cart)
+            payment_buttons = [
+                [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_wallet"),
+                                               callback_data="pay_wallet")],
+                [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_btc"),
+                                               callback_data="pay_crypto_BTC")],
+                [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_ltc"),
+                                               callback_data="pay_crypto_LTC")],
+                [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_xmr"),
+                                               callback_data="pay_crypto_XMR")],
+                [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_usdt"),
+                                               callback_data="pay_crypto_USDT-TRC20")],
+                [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_zcash"),
+                                               callback_data="pay_crypto_ZCASH")],
+                [telegram.InlineKeyboardButton(self.loc.get("menu_cancel"),
+                                               callback_data="cmd_cancel")]
+            ]
+            payment_keyboard = telegram.InlineKeyboardMarkup(payment_buttons)
+            self.bot.send_message(
+                self.chat.id,
+                self.loc.get("crypto_payment_method", total_cost=str(cart_value)),
+                reply_markup=payment_keyboard
+            )
+            # Wait for payment method selection
+            callback = self.__wait_for_inlinekeyboard_callback(cancellable=True)
+            if isinstance(callback, CancelSignal):
+                self.session.rollback()
+                return
+
+            if callback.data == "pay_wallet":
+                # Proceed with existing wallet payment flow
+                self.__process_wallet_payment(cart, order)
+            elif callback.data.startswith("pay_crypto_"):
+                coin = callback.data.replace("pay_crypto_", "")
+                self.__process_crypto_payment(cart, order, coin)
+            else:
+                self.session.rollback()
+                return
+        else:
+            # Original wallet-only payment flow
+            self.__process_wallet_payment(cart, order)
+
+    def __process_wallet_payment(self, cart, order):
+        """Process payment using the existing fiat wallet balance."""
         # Ensure the user has enough credit to make the purchase
         credit_required = self.__get_cart_value(cart) - self.user.credit
         # Notify user in case of insufficient credit
@@ -666,13 +761,227 @@ class Worker(threading.Thread):
                     credit_required <= \
                     self.Price(self.cfg["Payments"]["CreditCard"]["max_amount"]):
                 self.__make_payment(self.Price(credit_required))
-        # If afer requested payment credit is still insufficient (either payment failure or cancel)
+        # If after requested payment credit is still insufficient (either payment failure or cancel)
         if self.user.credit < self.__get_cart_value(cart):
             # Rollback all the changes
             self.session.rollback()
         else:
             # User has credit and valid order, perform transaction now
             self.__order_transaction(order=order, value=-int(self.__get_cart_value(cart)))
+
+    def __process_crypto_payment(self, cart, order, coin: str):
+        """Process a crypto payment with countdown timer and TX hash collection."""
+        import crypto_swap
+
+        # Get the swap engine config
+        try:
+            swap_cfg = self.cfg["CryptoSwap"]
+        except (KeyError, TypeError):
+            self.bot.send_message(self.chat.id, self.loc.get("crypto_price_error"))
+            self.session.rollback()
+            return
+
+        # Create a temporary CoinGecko client to fetch prices
+        client = crypto_swap.CoinGeckoClient(
+            base_url=swap_cfg.get("price_api", "https://api.coingecko.com/api/v3"),
+            cache_ttl=swap_cfg.get("cache_ttl", 60)
+        )
+
+        # Get CoinGecko ID for this coin
+        coins_cfg = swap_cfg.get("Coins", {})
+        cg_id = coins_cfg.get(coin)
+        if not cg_id:
+            self.bot.send_message(self.chat.id, self.loc.get("crypto_price_error"))
+            self.session.rollback()
+            return
+
+        # Fetch current price
+        prices = client.get_price([cg_id], "usd")
+        crypto_price = prices.get(cg_id)
+        if not crypto_price or crypto_price == 0:
+            self.bot.send_message(self.chat.id, self.loc.get("crypto_price_error"))
+            self.session.rollback()
+            return
+
+        # Calculate cart value in USD (convert from minimum currency units)
+        cart_value = self.__get_cart_value(cart)
+        cart_value_float = float(cart_value) / (10 ** self.cfg["Payments"]["currency_exp"])
+        order_total_usd = Decimal(str(cart_value_float))
+
+        # Calculate crypto amount
+        from utils import CRYPTO_DECIMALS
+        decimals = CRYPTO_DECIMALS.get(coin, 8)
+        crypto_amount = order_total_usd / crypto_price
+        quantize_str = "0." + "0" * decimals
+        from decimal import ROUND_DOWN as _ROUND_DOWN
+        crypto_amount = crypto_amount.quantize(Decimal(quantize_str), rounding=_ROUND_DOWN)
+
+        # Get deposit address
+        try:
+            deposit_address = swap_cfg["DepositAddresses"].get(coin, "ADDRESS_NOT_CONFIGURED")
+        except (KeyError, TypeError):
+            deposit_address = "ADDRESS_NOT_CONFIGURED"
+
+        # Save crypto payment details to order
+        order.crypto_currency = coin
+        order.crypto_amount = str(crypto_amount)
+        order.crypto_payment_address = deposit_address
+        self.session.flush()
+
+        # Quote timeout from config
+        quote_timeout = swap_cfg.get("quote_timeout", 60)
+        start_time = time.time()
+        remaining = quote_timeout
+
+        # Format initial countdown
+        minutes = int(remaining) // 60
+        seconds = int(remaining) % 60
+
+        # Build the payment message with countdown
+        inline_keyboard = telegram.InlineKeyboardMarkup([
+            [telegram.InlineKeyboardButton(self.loc.get("crypto_paid_button"),
+                                           callback_data="crypto_paid")],
+            [telegram.InlineKeyboardButton(self.loc.get("crypto_cancel_button"),
+                                           callback_data="crypto_cancel")]
+        ])
+
+        payment_msg = self.bot.send_message(
+            self.chat.id,
+            self.loc.get("crypto_payment_message",
+                         order_id=order.order_id,
+                         coin=coin,
+                         crypto_amount=str(crypto_amount),
+                         deposit_address=deposit_address,
+                         crypto_price_usd=str(crypto_price),
+                         order_total_usd=f"{order_total_usd:.2f}",
+                         minutes=f"{minutes:02d}",
+                         seconds=f"{seconds:02d}"),
+            reply_markup=inline_keyboard
+        )
+
+        # Countdown loop using queue.get(timeout=...)
+        while remaining > 0:
+            try:
+                data = self.queue.get(timeout=min(15, remaining))
+            except queuem.Empty:
+                # No input, update the countdown display
+                elapsed = time.time() - start_time
+                remaining = max(0, quote_timeout - elapsed)
+                minutes = int(remaining) // 60
+                seconds = int(remaining) % 60
+
+                try:
+                    self.bot.edit_message_text(
+                        chat_id=self.chat.id,
+                        message_id=payment_msg.message_id,
+                        text=self.loc.get("crypto_payment_message",
+                                          order_id=order.order_id,
+                                          coin=coin,
+                                          crypto_amount=str(crypto_amount),
+                                          deposit_address=deposit_address,
+                                          crypto_price_usd=str(crypto_price),
+                                          order_total_usd=f"{order_total_usd:.2f}",
+                                          minutes=f"{minutes:02d}",
+                                          seconds=f"{seconds:02d}"),
+                        reply_markup=inline_keyboard
+                    )
+                except Exception:
+                    pass
+                continue
+
+            # Handle stop signals
+            if isinstance(data, StopSignal):
+                self.__graceful_stop(data)
+            if isinstance(data, CancelSignal):
+                self.bot.send_message(self.chat.id, self.loc.get("crypto_payment_cancelled"))
+                self.session.rollback()
+                return
+
+            # Update last activity
+            self.last_activity = time.time()
+
+            # Check for callback query
+            if hasattr(data, 'callback_query') and data.callback_query is not None:
+                self.bot.answer_callback_query(data.callback_query.id)
+
+                if data.callback_query.data == "crypto_paid":
+                    # User claims to have paid — ask for TX hash
+                    self.bot.send_message(self.chat.id, self.loc.get("crypto_ask_tx_hash"))
+                    # Wait for the TX hash with remaining time
+                    tx_hash = None
+                    while remaining > 0:
+                        try:
+                            tx_data = self.queue.get(timeout=min(15, remaining))
+                        except queuem.Empty:
+                            elapsed = time.time() - start_time
+                            remaining = max(0, quote_timeout - elapsed)
+                            continue
+
+                        if isinstance(tx_data, StopSignal):
+                            self.__graceful_stop(tx_data)
+                        if isinstance(tx_data, CancelSignal):
+                            break
+
+                        self.last_activity = time.time()
+
+                        if hasattr(tx_data, 'message') and tx_data.message and tx_data.message.text:
+                            tx_hash = tx_data.message.text.strip()
+                            break
+
+                        elapsed = time.time() - start_time
+                        remaining = max(0, quote_timeout - elapsed)
+
+                    if tx_hash:
+                        # Save TX hash and finalize the order
+                        order.crypto_tx_hash = tx_hash
+                        self.session.commit()
+
+                        # Notify the user
+                        self.bot.send_message(
+                            self.chat.id,
+                            self.loc.get("crypto_payment_submitted", tx_hash=tx_hash)
+                        )
+
+                        # Notify admins
+                        admins = self.session.query(db.Admin).filter_by(receive_orders=True).all()
+                        for admin in admins:
+                            try:
+                                self.bot.send_message(
+                                    admin.user_id,
+                                    self.loc.get("crypto_admin_notification",
+                                                 order_id=order.order_id,
+                                                 user_mention=self.user.mention(),
+                                                 crypto_amount=str(crypto_amount),
+                                                 coin=coin,
+                                                 tx_hash=tx_hash,
+                                                 deposit_address=deposit_address)
+                                )
+                            except Exception:
+                                pass
+                        return
+                    else:
+                        # TX hash not provided in time — expire
+                        break
+
+                elif data.callback_query.data == "crypto_cancel":
+                    self.bot.send_message(self.chat.id, self.loc.get("crypto_payment_cancelled"))
+                    self.session.rollback()
+                    return
+
+            # Update remaining time
+            elapsed = time.time() - start_time
+            remaining = max(0, quote_timeout - elapsed)
+
+        # Timer expired
+        try:
+            self.bot.edit_message_text(
+                chat_id=self.chat.id,
+                message_id=payment_msg.message_id,
+                text=self.loc.get("crypto_payment_expired")
+            )
+        except Exception:
+            self.bot.send_message(self.chat.id, self.loc.get("crypto_payment_expired"))
+        self.session.rollback()
 
     def __get_cart_value(self, cart):
         # Calculate total items value in cart

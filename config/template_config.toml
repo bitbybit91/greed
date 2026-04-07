@@ -122,3 +122,97 @@ format = "{asctime} | {threadName} | {name} | {message}"
 # Logging level: ignore all log entries with a level lower than the specified one
 # Valid options are FATAL, ERROR, WARNING, INFO, and DEBUG
 level = "INFO"
+
+
+# Crypto swap settings
+[CryptoSwap]
+# Enable or disable the crypto swap feature
+enabled = true
+# CoinGecko API base URL
+price_api = "https://api.coingecko.com/api/v3"
+# Cache TTL for price lookups in seconds
+cache_ttl = 60
+# Fee percentage charged on swaps
+fee_percentage = 1.0
+# Quote timeout in seconds (how long a price quote is valid)
+quote_timeout = 60
+# Minimum swap amount in USD
+min_usd = 10.0
+# Maximum swap amount in USD
+max_usd = 10000.0
+
+# CoinGecko ID mappings for supported coins
+[CryptoSwap.Coins]
+BTC = "bitcoin"
+LTC = "litecoin"
+XMR = "monero"
+"USDT-TRC20" = "tether"
+ZCASH = "zcash"
+
+# Fee collection addresses — one per coin
+[CryptoSwap.FeeAddresses]
+BTC = "YOUR_BTC_FEE_ADDRESS"
+LTC = "YOUR_LTC_FEE_ADDRESS"
+XMR = "YOUR_XMR_FEE_ADDRESS"
+"USDT-TRC20" = "YOUR_USDT_TRC20_FEE_ADDRESS"
+ZCASH = "YOUR_ZCASH_FEE_ADDRESS"
+
+# Deposit addresses shown to customers — one per coin, MUST be operator-controlled
+[CryptoSwap.DepositAddresses]
+BTC = "YOUR_BTC_DEPOSIT_ADDRESS"
+LTC = "YOUR_LTC_DEPOSIT_ADDRESS"
+XMR = "YOUR_XMR_DEPOSIT_ADDRESS"
+"USDT-TRC20" = "YOUR_USDT_TRC20_DEPOSIT_ADDRESS"
+ZCASH = "YOUR_ZCASH_DEPOSIT_ADDRESS"
+
+
+# Multi-bot configuration
+# Up to 7 bots can be configured. Each bot runs in a daemon thread.
+# Memory management settings
+[Bots]
+# Maximum number of concurrent worker threads per bot
+max_workers_per_bot = 50
+# Idle timeout in seconds — workers idle longer than this are automatically stopped
+worker_idle_timeout = 1800
+
+[Bots.bot1]
+token = "BOT_1_TOKEN_HERE"
+enabled = true
+name = "ShopBot-1"
+directory = "ShopBot-1-TG-Bot"
+
+[Bots.bot2]
+token = "BOT_2_TOKEN_HERE"
+enabled = false
+name = "ShopBot-2"
+directory = "ShopBot-2-TG-Bot"
+
+[Bots.bot3]
+token = "BOT_3_TOKEN_HERE"
+enabled = false
+name = "ShopBot-3"
+directory = "ShopBot-3-TG-Bot"
+
+[Bots.bot4]
+token = "BOT_4_TOKEN_HERE"
+enabled = false
+name = "ShopBot-4"
+directory = "ShopBot-4-TG-Bot"
+
+[Bots.bot5]
+token = "BOT_5_TOKEN_HERE"
+enabled = false
+name = "ShopBot-5"
+directory = "ShopBot-5-TG-Bot"
+
+[Bots.bot6]
+token = "BOT_6_TOKEN_HERE"
+enabled = false
+name = "ShopBot-6"
+directory = "ShopBot-6-TG-Bot"
+
+[Bots.bot7]
+token = "BOT_7_TOKEN_HERE"
+enabled = false
+name = "ShopBot-7"
+directory = "ShopBot-7-TG-Bot"
