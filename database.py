@@ -102,6 +102,8 @@ class Product(TableDeclarativeBase):
     image = Column(LargeBinary)
     # Product has been deleted
     deleted = Column(Boolean, nullable=False)
+    # Which bot this product belongs to (None = main bot, "bot1" = ShopBot-1, etc.)
+bot_id = Column(String, nullable=True, default=None)
 
     # Extra table parameters
     __tablename__ = "products"
@@ -125,7 +127,7 @@ class Product(TableDeclarativeBase):
             raise ValueError("style is not an accepted value")
 
     def __repr__(self):
-        return f"<Product {self.name}>"
+        return f"<Product {self.name} (bot={self.bot_id})>"
 
     def send_as_message(self, w: "worker.Worker", chat_id: int) -> dict:
         """Send a message containing the product data."""
@@ -251,6 +253,9 @@ class Order(TableDeclarativeBase):
     crypto_amount = Column(String, nullable=True)
     crypto_tx_hash = Column(String, nullable=True)
     crypto_payment_address = Column(String, nullable=True)
+
+    # Which bot this order was placed through
+    bot_id = Column(String, nullable=True, default=None)
 
     # Extra table parameters
     __tablename__ = "orders"
