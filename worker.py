@@ -1228,6 +1228,15 @@ class Worker(threading.Thread):
         # Telegram Payments
         if self.cfg["Payments"]["CreditCard"]["credit_card_token"] != "":
             keyboard.append([telegram.KeyboardButton(self.loc.get("menu_credit_card"))])
+        # Crypto
+        crypto_available = self.swap_engine is not None
+        if not crypto_available:
+            try:
+                crypto_available = self.cfg["CryptoSwap"]["enabled"]
+            except (KeyError, TypeError):
+                pass
+        if crypto_available:
+            keyboard.append([telegram.KeyboardButton(self.loc.get("menu_add_credit_crypto"))])
         # Keyboard: go back to the previous menu
         keyboard.append([telegram.KeyboardButton(self.loc.get("menu_cancel"))])
         # Send the keyboard to the user
@@ -1235,7 +1244,8 @@ class Worker(threading.Thread):
                               reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
         # Wait for a reply from the user
         selection = self.__wait_for_specific_message(
-            [self.loc.get("menu_cash"), self.loc.get("menu_credit_card"), self.loc.get("menu_cancel")],
+            [self.loc.get("menu_cash"), self.loc.get("menu_credit_card"),
+             self.loc.get("menu_add_credit_crypto"), self.loc.get("menu_cancel")],
             cancellable=True)
         # If the user has selected the Cash option...
         if selection == self.loc.get("menu_cash") and self.cfg["Payments"]["Cash"]["enable_pay_with_cash"]:
@@ -1246,6 +1256,9 @@ class Worker(threading.Thread):
         elif selection == self.loc.get("menu_credit_card") and self.cfg["Payments"]["CreditCard"]["credit_card_token"]:
             # Go to the pay with credit card function
             self.__add_credit_cc()
+        # If the user has selected the Crypto option...
+        elif selection == self.loc.get("menu_add_credit_crypto"):
+            self.__add_credit_crypto()
         # If the user has selected the Cancel option...
         elif isinstance(selection, CancelSignal):
             # Send him back to the previous menu
@@ -1293,6 +1306,177 @@ class Worker(threading.Thread):
             return
         # Issue the payment invoice
         self.__make_payment(amount=value)
+
+    def __add_credit_crypto(self):
+        """Add credit to the wallet via cryptocurrency payment."""
+        log.debug("Displaying __add_credit_crypto")
+
+        # Determine min/max from config
+        try:
+            min_usd = Decimal(str(self.cfg["CryptoSwap"].get("min_usd", 10.0)))
+            max_usd = Decimal(str(self.cfg["CryptoSwap"].get("max_usd", 10000.0)))
+        except (KeyError, TypeError):
+            min_usd = Decimal("10")
+            max_usd = Decimal("10000")
+
+        # Ask how much to deposit (USD) — generate presets within min/max bounds
+        base_presets = [1000, 2500, 5000, 10000, 25000, 50000, 100000]
+        presets = [str(int(p)) for p in base_presets if Decimal(str(p)) >= min_usd and Decimal(str(p)) <= max_usd]
+        if not presets:
+            presets = [str(int(min_usd))]
+        preset_buttons = [[telegram.KeyboardButton(f"${p}")] for p in presets]
+        preset_buttons.append([telegram.KeyboardButton(self.loc.get("menu_cancel"))])
+        self.bot.send_message(
+            self.chat.id,
+            self.loc.get("ask_add_credit_crypto_amount", min_usd=str(min_usd), max_usd=str(max_usd)),
+            reply_markup=telegram.ReplyKeyboardMarkup(preset_buttons, one_time_keyboard=True),
+        )
+        # Wait for amount input
+        raw = self.__wait_for_regex(r"\$?([0-9]+(?:[.,][0-9]{1,2})?)", cancellable=True)
+        if isinstance(raw, CancelSignal):
+            return
+        try:
+            amount_usd = Decimal(raw.replace(",", "."))
+        except Exception:
+            self.bot.send_message(self.chat.id, self.loc.get("error_add_credit_crypto_amount",
+                                                              min_usd=str(min_usd), max_usd=str(max_usd)))
+            return
+        if amount_usd < min_usd or amount_usd > max_usd:
+            self.bot.send_message(self.chat.id, self.loc.get("error_add_credit_crypto_amount",
+                                                              min_usd=str(min_usd), max_usd=str(max_usd)))
+            return
+
+        # --- Coin selection ---
+        if self.swap_engine is not None:
+            coins = self.swap_engine.supported_coins
+        else:
+            try:
+                coins = list(self.cfg["CryptoSwap"]["Coins"].keys())
+            except (KeyError, TypeError):
+                self.bot.send_message(self.chat.id, self.loc.get("error_no_coins_configured"))
+                return
+
+        coin_buttons = [[telegram.InlineKeyboardButton(c, callback_data=f"acrypto_{c}")] for c in coins]
+        coin_buttons.append([telegram.InlineKeyboardButton(self.loc.get("menu_cancel"), callback_data="cmd_cancel")])
+        self.bot.send_message(
+            self.chat.id,
+            self.loc.get("add_credit_select_crypto"),
+            reply_markup=telegram.InlineKeyboardMarkup(coin_buttons),
+        )
+        coin_cb = self.__wait_for_inlinekeyboard_callback(cancellable=True)
+        if isinstance(coin_cb, CancelSignal):
+            return
+        selected_coin = coin_cb.data.replace("acrypto_", "", 1)
+
+        # --- Get price ---
+        if self.swap_engine is not None:
+            crypto_price = self.swap_engine.get_price_usd(selected_coin)
+        else:
+            import crypto_swap as _cs
+            client = _cs.CoinGeckoClient(
+                base_url=self.cfg["CryptoSwap"].get("price_api", "https://api.coingecko.com/api/v3"),
+                cache_ttl=self.cfg["CryptoSwap"].get("cache_ttl", 60),
+            )
+            cg_id = self.cfg["CryptoSwap"]["Coins"].get(selected_coin)
+            prices = client.get_price([cg_id], "usd") if cg_id else {}
+            crypto_price = prices.get(cg_id)
+
+        if not crypto_price or crypto_price == 0:
+            self.bot.send_message(self.chat.id,
+                                  self.loc.get("error_crypto_price_unavailable", currency=selected_coin))
+            return
+
+        # --- Get deposit address (always from config.toml first) ---
+        deposit_address = None
+        try:
+            deposit_address = self.cfg["CryptoSwap"]["DepositAddresses"].get(selected_coin)
+        except (KeyError, TypeError):
+            pass
+        if not deposit_address and self.swap_engine is not None:
+            try:
+                deposit_address = self.swap_engine.get_deposit_address(selected_coin)
+            except Exception:
+                pass
+
+        if not deposit_address:
+            self.bot.send_message(self.chat.id,
+                                  self.loc.get("checkout_crypto_no_address", currency=selected_coin))
+            return
+
+        # --- Calculate crypto amount ---
+        decimals = utils.CRYPTO_DECIMALS.get(selected_coin, 8)
+        crypto_amount = amount_usd / crypto_price
+        quantize_str = "0." + "0" * decimals
+        crypto_amount = crypto_amount.quantize(Decimal(quantize_str), rounding=ROUND_DOWN)
+        rate_str = f"${crypto_price:.2f} USD"
+
+        # Convert USD to fiat wallet units
+        currency_exp = self.cfg["Payments"]["currency_exp"]
+        fiat_value = int(amount_usd * (10 ** currency_exp))
+
+        # --- Show invoice ---
+        invoice_kb = telegram.InlineKeyboardMarkup([
+            [telegram.InlineKeyboardButton(self.loc.get("checkout_ive_paid"), callback_data="acrypto_paid")],
+            [telegram.InlineKeyboardButton(self.loc.get("checkout_cancel_crypto"), callback_data="acrypto_cancel")],
+        ])
+        self.bot.send_message(
+            self.chat.id,
+            self.loc.get("add_credit_crypto_invoice",
+                         amount_usd=f"${amount_usd:.2f}",
+                         currency=selected_coin,
+                         crypto_amount=str(crypto_amount),
+                         address=deposit_address,
+                         rate=rate_str),
+            reply_markup=invoice_kb,
+        )
+
+        # --- Wait for payment claim ---
+        callback = self.__wait_for_inlinekeyboard_callback(cancellable=True)
+        if isinstance(callback, CancelSignal) or callback.data == "acrypto_cancel":
+            return
+
+        if callback.data == "acrypto_paid":
+            self.bot.send_message(self.chat.id, self.loc.get("checkout_enter_tx_hash"))
+            tx_hash_input = self.__wait_for_regex(r"(.+)", cancellable=True)
+            if isinstance(tx_hash_input, CancelSignal):
+                return
+            tx_hash = tx_hash_input.strip()
+
+            # Record the transaction as a credit addition
+            transaction = db.Transaction(user=self.user,
+                                         value=fiat_value,
+                                         provider="Crypto",
+                                         notes=f"{crypto_amount} {selected_coin} | TX: {tx_hash}")
+            self.session.add(transaction)
+            self.user.recalculate_credit()
+            self.session.commit()
+
+            # Notify user
+            self.bot.send_message(
+                self.chat.id,
+                self.loc.get("add_credit_crypto_success",
+                             amount_usd=f"${amount_usd:.2f}",
+                             crypto_amount=str(crypto_amount),
+                             currency=selected_coin,
+                             tx_hash=tx_hash),
+            )
+
+            # Notify admins
+            admins = self.session.query(db.Admin).filter_by(receive_orders=True).all()
+            for admin in admins:
+                try:
+                    self.bot.send_message(
+                        admin.user_id,
+                        self.loc.get("add_credit_crypto_admin_notification",
+                                     user=str(self.user),
+                                     amount_usd=f"${amount_usd:.2f}",
+                                     crypto_amount=str(crypto_amount),
+                                     currency=selected_coin,
+                                     tx_hash=tx_hash,
+                                     address=deposit_address),
+                    )
+                except Exception:
+                    pass
 
     def __make_payment(self, amount):
         # Set the invoice active invoice payload
