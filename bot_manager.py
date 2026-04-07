@@ -42,7 +42,7 @@ class BotInstance:
         self._poll_count = 0
 
         # Create bot instance with the specific token
-        self.bot = duckbot.factory(cfg)(
+        self.bot = duckbot.factory_with_token(cfg, token)(
             request=telegram.utils.request.Request(cfg["Telegram"]["con_pool_size"])
         )
 

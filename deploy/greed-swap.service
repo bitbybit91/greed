@@ -1,5 +1,4 @@
 [Unit]
-Name=greed-swap
 Description=Greed Multi-Bot Crypto Shop Platform
 Wants=network-online.target
 After=network-online.target nss-lookup.target

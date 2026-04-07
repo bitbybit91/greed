@@ -813,8 +813,8 @@ class Worker(threading.Thread):
         decimals = CRYPTO_DECIMALS.get(coin, 8)
         crypto_amount = order_total_usd / crypto_price
         quantize_str = "0." + "0" * decimals
-        from decimal import ROUND_DOWN as _ROUND_DOWN
-        crypto_amount = crypto_amount.quantize(Decimal(quantize_str), rounding=_ROUND_DOWN)
+        from decimal import ROUND_DOWN
+        crypto_amount = crypto_amount.quantize(Decimal(quantize_str), rounding=ROUND_DOWN)
 
         # Get deposit address
         try:
