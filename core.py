@@ -10,6 +10,7 @@ import database
 import duckbot
 import localization
 import nuconfig
+import bot_manager
 import worker
 
 try:
@@ -118,6 +119,13 @@ def main():
 
     # Notify on the console that the bot is starting
     log.info(f"@{me.username} is starting!")
+
+    # Start additional bots defined in [Bots.*] config sections
+    log.info("Starting BotManager for additional bots...")
+    bot_mgr = bot_manager.BotManager.build_from_config(user_cfg, engine)
+    bot_mgr.start_all()
+    if bot_mgr.bot_count > 0:
+        log.info(f"BotManager started {bot_mgr.bot_count} additional bot(s).")
 
     # Main loop of the program
     while True:

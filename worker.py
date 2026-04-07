@@ -44,6 +44,8 @@ class Worker(threading.Thread):
                  telegram_user: telegram.User,
                  cfg: nuconfig.NuConfig,
                  engine,
+                 bot_id: str = None,
+                 swap_engine=None,
                  *args,
                  **kwargs):
         # Initialize the thread
@@ -53,6 +55,9 @@ class Worker(threading.Thread):
         self.chat: telegram.Chat = chat
         self.telegram_user: telegram.User = telegram_user
         self.cfg = cfg
+        # Bot ID (None = main bot) and per-bot swap engine (BUG 1+3 FIX)
+        self.bot_id = bot_id
+        self.swap_engine = swap_engine
         self.loc = None
         # Open a new database session
         log.debug(f"Opening new database session for {self.name}")
@@ -546,6 +551,10 @@ class Worker(threading.Thread):
                 continue
             # Send the message without the keyboard to get the message id
             message = product.send_as_message(w=self, chat_id=self.chat.id)
+            # BUG 2 FIX: skip products that couldn't be sent (bot blocked/Unauthorized)
+            if message is None:
+                log.warning(f"Product {product.name!r}: send_as_message returned None, skipping.")
+                continue
             # Add the product to the cart
             cart[message['message_id']] = [product, 0]
             # Create the inline keyboard to add the product to the cart
@@ -696,56 +705,60 @@ class Worker(threading.Thread):
                 self.session.add(order_item)
         # Flush to get an order_id without committing
         self.session.flush()
-        # Check if crypto swap is enabled and show payment method selection
-        crypto_enabled = False
-        try:
-            crypto_enabled = self.cfg["CryptoSwap"]["enabled"]
-        except (KeyError, TypeError):
-            pass
-
-        if crypto_enabled:
-            # Show payment method selection with crypto options
-            cart_value = self.__get_cart_value(cart)
-            payment_buttons = [
-                [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_wallet"),
-                                               callback_data="pay_wallet")],
-                [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_btc"),
-                                               callback_data="pay_crypto_BTC")],
-                [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_ltc"),
-                                               callback_data="pay_crypto_LTC")],
-                [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_xmr"),
-                                               callback_data="pay_crypto_XMR")],
-                [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_usdt"),
-                                               callback_data="pay_crypto_USDT-TRC20")],
-                [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_zcash"),
-                                               callback_data="pay_crypto_ZCASH")],
-                [telegram.InlineKeyboardButton(self.loc.get("menu_cancel"),
-                                               callback_data="cmd_cancel")]
-            ]
-            payment_keyboard = telegram.InlineKeyboardMarkup(payment_buttons)
-            self.bot.send_message(
-                self.chat.id,
-                self.loc.get("crypto_payment_method", total_cost=str(cart_value)),
-                reply_markup=payment_keyboard
-            )
-            # Wait for payment method selection
-            callback = self.__wait_for_inlinekeyboard_callback(cancellable=True)
-            if isinstance(callback, CancelSignal):
-                self.session.rollback()
-                return
-
-            if callback.data == "pay_wallet":
-                # Proceed with existing wallet payment flow
-                self.__process_wallet_payment(cart, order)
-            elif callback.data.startswith("pay_crypto_"):
-                coin = callback.data.replace("pay_crypto_", "")
-                self.__process_crypto_payment(cart, order, coin)
-            else:
-                self.session.rollback()
-                return
+        # BUG 3 FIX: use per-bot SwapEngine when available; fall back to legacy cfg-based flow
+        if self.swap_engine is not None:
+            self.__checkout_with_swap_engine(cart, order)
         else:
-            # Original wallet-only payment flow
-            self.__process_wallet_payment(cart, order)
+            # Check if crypto swap is enabled and show payment method selection
+            crypto_enabled = False
+            try:
+                crypto_enabled = self.cfg["CryptoSwap"]["enabled"]
+            except (KeyError, TypeError):
+                pass
+
+            if crypto_enabled:
+                # Show payment method selection with crypto options
+                cart_value = self.__get_cart_value(cart)
+                payment_buttons = [
+                    [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_wallet"),
+                                                   callback_data="pay_wallet")],
+                    [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_btc"),
+                                                   callback_data="pay_crypto_BTC")],
+                    [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_ltc"),
+                                                   callback_data="pay_crypto_LTC")],
+                    [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_xmr"),
+                                                   callback_data="pay_crypto_XMR")],
+                    [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_usdt"),
+                                                   callback_data="pay_crypto_USDT-TRC20")],
+                    [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_zcash"),
+                                                   callback_data="pay_crypto_ZCASH")],
+                    [telegram.InlineKeyboardButton(self.loc.get("menu_cancel"),
+                                                   callback_data="cmd_cancel")]
+                ]
+                payment_keyboard = telegram.InlineKeyboardMarkup(payment_buttons)
+                self.bot.send_message(
+                    self.chat.id,
+                    self.loc.get("crypto_payment_method", total_cost=str(cart_value)),
+                    reply_markup=payment_keyboard
+                )
+                # Wait for payment method selection
+                callback = self.__wait_for_inlinekeyboard_callback(cancellable=True)
+                if isinstance(callback, CancelSignal):
+                    self.session.rollback()
+                    return
+
+                if callback.data == "pay_wallet":
+                    # Proceed with existing wallet payment flow
+                    self.__process_wallet_payment(cart, order)
+                elif callback.data.startswith("pay_crypto_"):
+                    coin = callback.data.replace("pay_crypto_", "")
+                    self.__process_crypto_payment(cart, order, coin)
+                else:
+                    self.session.rollback()
+                    return
+            else:
+                # Original wallet-only payment flow
+                self.__process_wallet_payment(cart, order)
 
     def __process_wallet_payment(self, cart, order):
         """Process payment using the existing fiat wallet balance."""
@@ -982,6 +995,159 @@ class Worker(threading.Thread):
         except Exception:
             self.bot.send_message(self.chat.id, self.loc.get("crypto_payment_expired"))
         self.session.rollback()
+
+
+    def __checkout_with_swap_engine(self, cart, order):
+        """Checkout using the per-bot SwapEngine: wallet balance or crypto."""
+        cart_value = self.__get_cart_value(cart)
+        payment_keyboard = telegram.InlineKeyboardMarkup([
+            [telegram.InlineKeyboardButton(self.loc.get("menu_pay_wallet_balance"),
+                                           callback_data="swe_pay_wallet")],
+            [telegram.InlineKeyboardButton(self.loc.get("menu_pay_crypto"),
+                                           callback_data="swe_pay_crypto")],
+            [telegram.InlineKeyboardButton(self.loc.get("menu_cancel"),
+                                           callback_data="cmd_cancel")],
+        ])
+        self.bot.send_message(
+            self.chat.id,
+            self.loc.get("checkout_select_payment", total=str(cart_value)),
+            reply_markup=payment_keyboard,
+        )
+        callback = self.__wait_for_inlinekeyboard_callback(cancellable=True)
+        if isinstance(callback, CancelSignal):
+            self.session.rollback()
+            return
+
+        if callback.data == "swe_pay_wallet":
+            self.__process_wallet_payment(cart, order)
+        elif callback.data == "swe_pay_crypto":
+            # Show dynamic coin selection from the SwapEngine
+            supported_coins = self.swap_engine.supported_coins
+            coin_buttons = [
+                [telegram.InlineKeyboardButton(coin, callback_data=f"swe_coin_{coin}")]
+                for coin in supported_coins
+            ]
+            coin_buttons.append([telegram.InlineKeyboardButton(
+                self.loc.get("menu_cancel"), callback_data="cmd_cancel")])
+            self.bot.send_message(
+                self.chat.id,
+                self.loc.get("checkout_select_crypto"),
+                reply_markup=telegram.InlineKeyboardMarkup(coin_buttons),
+            )
+            coin_cb = self.__wait_for_inlinekeyboard_callback(cancellable=True)
+            if isinstance(coin_cb, CancelSignal):
+                self.session.rollback()
+                return
+            selected_coin = coin_cb.data.replace("swe_coin_", "", 1)
+            self.__process_swap_engine_payment(cart, order, selected_coin)
+        else:
+            self.session.rollback()
+
+    def __process_swap_engine_payment(self, cart, order, currency: str):
+        """Process a crypto payment via the per-bot SwapEngine."""
+        crypto_price = self.swap_engine.get_price_usd(currency)
+        if not crypto_price:
+            self.bot.send_message(
+                self.chat.id,
+                self.loc.get("error_crypto_price_unavailable", currency=currency),
+            )
+            self.session.rollback()
+            return
+
+        deposit_address = self.swap_engine.get_deposit_address(currency)
+        if not deposit_address:
+            self.bot.send_message(
+                self.chat.id,
+                self.loc.get("checkout_crypto_no_address", currency=currency),
+            )
+            self.session.rollback()
+            return
+
+        cart_value = self.__get_cart_value(cart)
+        currency_exp = self.cfg["Payments"]["currency_exp"]
+        fiat_total_str = str(cart_value)
+        cart_value_usd = Decimal(str(int(cart_value))) / Decimal(str(10 ** currency_exp))
+
+        from utils import CRYPTO_DECIMALS
+        from decimal import ROUND_DOWN
+        decimals = CRYPTO_DECIMALS.get(currency, 8)
+        crypto_amount = cart_value_usd / crypto_price
+        quantize_str = "0." + "0" * decimals
+        crypto_amount = crypto_amount.quantize(Decimal(quantize_str), rounding=ROUND_DOWN)
+
+        rate_str = f"${crypto_price:.2f} USD"
+
+        # Save crypto payment info to the order
+        order.crypto_currency = currency
+        order.crypto_amount = str(crypto_amount)
+        order.crypto_payment_address = deposit_address
+        self.session.flush()
+
+        # Show the invoice
+        invoice_keyboard = telegram.InlineKeyboardMarkup([
+            [telegram.InlineKeyboardButton(self.loc.get("checkout_ive_paid"),
+                                           callback_data="swe_paid")],
+            [telegram.InlineKeyboardButton(self.loc.get("checkout_cancel_crypto"),
+                                           callback_data="swe_cancel")],
+        ])
+        self.bot.send_message(
+            self.chat.id,
+            self.loc.get(
+                "checkout_crypto_invoice",
+                currency=currency,
+                crypto_amount=str(crypto_amount),
+                address=deposit_address,
+                rate=rate_str,
+                fiat_total=fiat_total_str,
+            ),
+            reply_markup=invoice_keyboard,
+        )
+
+        # Wait for the user to claim payment or cancel
+        callback = self.__wait_for_inlinekeyboard_callback(cancellable=True)
+        if isinstance(callback, CancelSignal) or callback.data == "swe_cancel":
+            self.session.rollback()
+            return
+
+        if callback.data == "swe_paid":
+            # Ask for TX hash
+            self.bot.send_message(self.chat.id, self.loc.get("checkout_enter_tx_hash"))
+            tx_hash_input = self.__wait_for_regex(r"(.+)", cancellable=True)
+            if isinstance(tx_hash_input, CancelSignal):
+                self.session.rollback()
+                return
+            tx_hash = tx_hash_input.strip()
+
+            # Save and commit the order (no fiat deduction for crypto payment)
+            order.crypto_tx_hash = tx_hash
+            self.session.commit()
+
+            # Notify the user
+            self.bot.send_message(
+                self.chat.id,
+                self.loc.get("checkout_crypto_pending", tx_hash=tx_hash),
+            )
+
+            # Notify admins
+            admins = self.session.query(db.Admin).filter_by(receive_orders=True).all()
+            for admin in admins:
+                try:
+                    self.bot.send_message(
+                        admin.user_id,
+                        self.loc.get(
+                            "notification_crypto_payment",
+                            order_id=order.order_id,
+                            user=str(self.user),
+                            crypto_amount=str(crypto_amount),
+                            currency=currency,
+                            tx_hash=tx_hash,
+                            address=deposit_address,
+                        ),
+                    )
+                except Exception:
+                    pass
+        else:
+            self.session.rollback()
 
     def __get_cart_value(self, cart):
         # Calculate total items value in cart

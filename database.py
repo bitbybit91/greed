@@ -135,6 +135,13 @@ class Product(TableDeclarativeBase):
             msg = w.bot.send_message(chat_id, self.text(w))
         else:
             msg = w.bot.send_photo(chat_id, self.image, caption=self.text(w))
+        # BUG 2 FIX: DuckBot returns None on Unauthorized; guard before calling .to_dict()
+        if msg is None:
+            log.warning(
+                f"send_as_message for product {self.name!r} returned None "
+                "(bot blocked or Unauthorized?)"
+            )
+            return None
         return msg.to_dict()
 
     def set_image(self, file: telegram.File):

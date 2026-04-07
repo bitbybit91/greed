@@ -146,6 +146,7 @@ class BotInstance:
                 cfg=self.cfg,
                 engine=self.engine,
                 bot_id=self.bot_key,
+                swap_engine=self.swap_engine,
                 daemon=True
             )
             new_worker.start() 
@@ -294,14 +295,31 @@ class BotManager:
                 os.makedirs(directory, exist_ok=True)
                 log.debug(f"Bot [{key}] ({name}): ensured directory '{directory}' exists.")
 
+            # BUG 1 FIX: create a separate engine for each bot
+            per_bot_db_uri = bot_section.get("database") or cfg["Database"]["engine"]
+            per_bot_engine = sqlalchemy.create_engine(per_bot_db_uri)
+            database.TableDeclarativeBase.metadata.create_all(bind=per_bot_engine)
+            sed.DeferredReflection.prepare(per_bot_engine)
+            log.debug(f"Bot [{key}] ({name}): using database {per_bot_db_uri!r}")
+
+            # Create a per-bot SwapEngine if CryptoSwap is enabled
+            per_bot_swap = None
+            try:
+                if cfg["CryptoSwap"]["enabled"]:
+                    import crypto_swap as _cs
+                    per_bot_swap = _cs.SwapEngine(cfg)
+                    log.debug(f"Bot [{key}] ({name}): SwapEngine created")
+            except (KeyError, TypeError):
+                pass
+
             bot_instance = BotInstance(
                 name=name,
                 token=token,
                 directory=directory,
                 cfg=cfg,
-                engine=engine,
+                engine=per_bot_engine,
                 bot_key=key,
-                swap_engine=swap_engine,
+                swap_engine=per_bot_swap,
                 max_workers=max_workers,
                 idle_timeout=idle_timeout,
             )

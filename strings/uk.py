@@ -526,3 +526,33 @@ crypto_price_error = "⚠️ Unable to fetch current crypto prices. Please try a
 
 # Crypto payment: cancelled
 crypto_payment_cancelled = "❌ Crypto payment cancelled."
+
+# --- Crypto payment during product checkout (added by fix_greed.py) ---
+menu_pay_wallet_balance = "\U0001f4b5 Pay with Wallet Balance"
+menu_pay_crypto = "\u20bf Pay with Crypto"
+checkout_select_payment = ("\U0001f4b3 <b>Payment Method</b>\n\n"
+                           "Total: <b>{total}</b>\n\n"
+                           "How would you like to pay?")
+checkout_select_crypto = "Select which cryptocurrency to pay with:"
+checkout_crypto_invoice = ("\U0001f4e6 <b>Order \u2014 Pay with {currency}</b>\n\n"
+                           "Send exactly <code>{crypto_amount}</code> to:\n\n"
+                           "<code>{address}</code>\n\n"
+                           "\U0001f4b1 Rate: 1 {currency} = {rate}\n"
+                           "\U0001f4b0 Total: {fiat_total} = {crypto_amount} {currency}\n\n"
+                           "After sending, tap <b>\u2705 I\u2019ve Paid</b> and provide your TX hash.")
+checkout_crypto_no_address = ("\u26a0\ufe0f No deposit address configured for {currency}. "
+                              "Please try another currency or contact support.")
+checkout_enter_tx_hash = "Please enter your transaction hash (TX ID):"
+checkout_crypto_pending = ("\u2705 <b>Payment recorded!</b>\n\n"
+                           "Order has been placed and is pending crypto payment verification.\n"
+                           "TX Hash: <code>{tx_hash}</code>\n\n"
+                           "An administrator will verify your payment shortly.")
+checkout_ive_paid = "\u2705 I\u2019ve Paid"
+checkout_cancel_crypto = "\u274c Cancel"
+notification_crypto_payment = ("\U0001f514 <b>New Crypto Payment</b>\n\n"
+                               "Order: #{order_id}\n"
+                               "User: {user}\n"
+                               "Amount: {crypto_amount} {currency}\n"
+                               "TX Hash: <code>{tx_hash}</code>\n"
+                               "Address: <code>{address}</code>")
+error_crypto_price_unavailable = "\u26a0\ufe0f Could not fetch {currency} price. Please try again."
