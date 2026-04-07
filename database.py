@@ -102,6 +102,8 @@ class Product(TableDeclarativeBase):
     image = Column(LargeBinary)
     # Product has been deleted
     deleted = Column(Boolean, nullable=False)
+    # The bot this product belongs to; None = main bot, "bot1" = ShopBot-1, etc.
+    bot_id = Column(String, nullable=True, default=None)
 
     # Extra table parameters
     __tablename__ = "products"
@@ -251,6 +253,9 @@ class Order(TableDeclarativeBase):
     crypto_amount = Column(String, nullable=True)
     crypto_tx_hash = Column(String, nullable=True)
     crypto_payment_address = Column(String, nullable=True)
+
+    # The bot this order was placed through; None = main bot, "bot1" = ShopBot-1, etc.
+    bot_id = Column(String, nullable=True, default=None)
 
     # Extra table parameters
     __tablename__ = "orders"

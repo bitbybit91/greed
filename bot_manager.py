@@ -27,12 +27,13 @@ class BotInstance:
     BOOTSTRAP_COMMANDS = ["/start"]
 
     def __init__(self, name: str, token: str, directory: str, cfg: nuconfig.NuConfig,
-                 engine, swap_engine=None, max_workers: int = 50, idle_timeout: int = 1800):
+                 engine, bot_key: str = None, swap_engine=None, max_workers: int = 50, idle_timeout: int = 1800):
         self.name = name
         self.token = token
         self.directory = directory
         self.cfg = cfg
         self.engine = engine
+        self.bot_key = bot_key
         self.swap_engine = swap_engine
         self._max_workers = max_workers
         self._idle_timeout = idle_timeout
@@ -144,6 +145,7 @@ class BotInstance:
                 telegram_user=update.message.from_user,
                 cfg=self.cfg,
                 engine=self.engine,
+                bot_id=self.bot_key,
                 daemon=True
             )
             new_worker.start()
@@ -298,6 +300,7 @@ class BotManager:
                 directory=directory,
                 cfg=cfg,
                 engine=engine,
+                bot_key=key,
                 swap_engine=swap_engine,
                 max_workers=max_workers,
                 idle_timeout=idle_timeout,

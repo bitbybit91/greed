@@ -45,6 +45,7 @@ class Worker(threading.Thread):
                  cfg: nuconfig.NuConfig,
                  engine,
                  *args,
+                 bot_id: Optional[str] = None,
                  **kwargs):
         # Initialize the thread
         super().__init__(name=f"Worker {chat.id}", *args, **kwargs)
@@ -54,6 +55,8 @@ class Worker(threading.Thread):
         self.telegram_user: telegram.User = telegram_user
         self.cfg = cfg
         self.loc = None
+        # The bot_id scopes this worker to a specific bot's product catalog
+        self.bot_id: Optional[str] = bot_id
         # Open a new database session
         log.debug(f"Opening new database session for {self.name}")
         self.session = sqlalchemy.orm.sessionmaker(bind=engine)()
@@ -71,6 +74,10 @@ class Worker(threading.Thread):
 
     def __repr__(self):
         return f"<{self.__class__.__qualname__} {self.chat.id}>"
+
+    def _get_products(self):
+        """Return all non-deleted products belonging to this bot."""
+        return self.session.query(db.Product).filter_by(deleted=False, bot_id=self.bot_id).all()
 
     # noinspection PyMethodParameters
     def price_factory(worker):
@@ -535,7 +542,7 @@ class Worker(threading.Thread):
         """User menu to order products from the shop."""
         log.debug("Displaying __order_menu")
         # Get the products list from the db
-        products = self.session.query(db.Product).filter_by(deleted=False).all()
+        products = self._get_products()
         # Create a dict to be used as 'cart'
         # The key is the message id of the product list
         cart: Dict[List[db.Product, int]] = {}
@@ -684,7 +691,8 @@ class Worker(threading.Thread):
         # Create a new Order
         order = db.Order(user=self.user,
                          creation_date=datetime.datetime.now(),
-                         notes=notes if not isinstance(notes, CancelSignal) else "")
+                         notes=notes if not isinstance(notes, CancelSignal) else "",
+                         bot_id=self.bot_id)
         # Add the record to the session and get an ID
         self.session.add(order)
         # For each product added to the cart, create a new OrderItem
@@ -1266,7 +1274,7 @@ class Worker(threading.Thread):
         """Display the admin menu to select a product to edit."""
         log.debug("Displaying __products_menu")
         # Get the products list from the db
-        products = self.session.query(db.Product).filter_by(deleted=False).all()
+        products = self._get_products()
         # Create a list of product names
         product_names = [product.name for product in products]
         # Insert at the start of the list the add product option, the remove product option and the Cancel option
@@ -1295,7 +1303,7 @@ class Worker(threading.Thread):
         # If the user has selected a product
         else:
             # Find the selected product
-            product = self.session.query(db.Product).filter_by(name=selection, deleted=False).one()
+            product = self.session.query(db.Product).filter_by(name=selection, deleted=False, bot_id=self.bot_id).one()
             # Open the edit menu for that specific product
             self.__edit_product_menu(product=product)
 
@@ -1317,7 +1325,7 @@ class Worker(threading.Thread):
             name = self.__wait_for_regex(r"(.*)", cancellable=bool(product))
             # Ensure a product with that name doesn't already exist
             if (product and isinstance(name, CancelSignal)) or \
-                    self.session.query(db.Product).filter_by(name=name, deleted=False).one_or_none() in [None, product]:
+                    self.session.query(db.Product).filter_by(name=name, deleted=False, bot_id=self.bot_id).one_or_none() in [None, product]:
                 # Exit the loop
                 break
             self.bot.send_message(self.chat.id, self.loc.get("error_duplicate_name"))
@@ -1367,7 +1375,8 @@ class Worker(threading.Thread):
             product = db.Product(name=name,
                                  description=description,
                                  price=price,
-                                 deleted=False)
+                                 deleted=False,
+                                 bot_id=self.bot_id)
             # Add the record to the database
             self.session.add(product)
         # If a product is being edited...
@@ -1377,7 +1386,7 @@ class Worker(threading.Thread):
             product.description = description if not isinstance(description, CancelSignal) else product.description
             product.price = price if not isinstance(price, CancelSignal) else product.price
         # If a photo has been sent...
-        if isinstance(photo_list, list):
+        if isinstance(photo_list, list) and len(photo_list) > 0:
             # Find the largest photo id
             largest_photo = photo_list[0]
             for photo in photo_list[1:]:
@@ -1398,7 +1407,7 @@ class Worker(threading.Thread):
     def __delete_product_menu(self):
         log.debug("Displaying __delete_product_menu")
         # Get the products list from the db
-        products = self.session.query(db.Product).filter_by(deleted=False).all()
+        products = self._get_products()
         # Create a list of product names
         product_names = [product.name for product in products]
         # Insert at the start of the list the Cancel button
@@ -1415,7 +1424,7 @@ class Worker(threading.Thread):
             return
         else:
             # Find the selected product
-            product = self.session.query(db.Product).filter_by(name=selection, deleted=False).one()
+            product = self.session.query(db.Product).filter_by(name=selection, deleted=False, bot_id=self.bot_id).one()
             # "Delete" the product by setting the deleted flag to true
             product.deleted = True
             self.session.commit()

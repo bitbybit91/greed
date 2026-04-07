@@ -7,6 +7,7 @@ import sqlalchemy.ext.declarative as sed
 import telegram
 
 import database
+import bot_manager
 import duckbot
 import localization
 import nuconfig
@@ -103,6 +104,12 @@ def main():
         logging.fatal("The token you have entered in the config file is invalid. Fix it, then restart greed.")
         sys.exit(1)
     log.debug("Bot token is valid!")
+
+    # Start additional bots from [Bots.*] config sections
+    mgr = bot_manager.BotManager.build_from_config(cfg=user_cfg, engine=engine)
+    if mgr.bot_count > 0:
+        mgr.start_all()
+        log.info(f"BotManager: {mgr.bot_count} additional bot(s) started.")
 
     # Finding default language
     default_language = user_cfg["Language"]["default_language"]
