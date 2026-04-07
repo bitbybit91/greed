@@ -8,7 +8,7 @@ import threading
 import time
 import traceback
 import uuid
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 from html import escape
 from typing import *
 
@@ -17,6 +17,7 @@ import sqlalchemy
 import telegram
 
 import database as db
+import utils
 import localization
 import nuconfig
 
@@ -1068,9 +1069,7 @@ class Worker(threading.Thread):
         fiat_total_str = str(cart_value)
         cart_value_usd = Decimal(str(int(cart_value))) / Decimal(str(10 ** currency_exp))
 
-        from utils import CRYPTO_DECIMALS
-        from decimal import ROUND_DOWN
-        decimals = CRYPTO_DECIMALS.get(currency, 8)
+        decimals = utils.CRYPTO_DECIMALS.get(currency, 8)
         crypto_amount = cart_value_usd / crypto_price
         quantize_str = "0." + "0" * decimals
         crypto_amount = crypto_amount.quantize(Decimal(quantize_str), rounding=ROUND_DOWN)

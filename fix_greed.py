@@ -153,9 +153,7 @@ WORKER_SWAP_ENGINE_METHODS = '''
         fiat_total_str = str(cart_value)
         cart_value_usd = Decimal(str(int(cart_value))) / Decimal(str(10 ** currency_exp))
 
-        from utils import CRYPTO_DECIMALS
-        from decimal import ROUND_DOWN
-        decimals = CRYPTO_DECIMALS.get(currency, 8)
+        decimals = utils.CRYPTO_DECIMALS.get(currency, 8)
         crypto_amount = cart_value_usd / crypto_price
         quantize_str = "0." + "0" * decimals
         crypto_amount = crypto_amount.quantize(Decimal(quantize_str), rounding=ROUND_DOWN)
@@ -395,7 +393,21 @@ def main():
     # -----------------------------------------------------------------------
     content = read_file("worker.py")
 
-    # 5a. Add bot_id and swap_engine params to Worker.__init__
+    # 5a. Add ROUND_DOWN and utils to module-level imports (move out of inline usage)
+    content = patch(
+        content,
+        "from decimal import Decimal\n",
+        "from decimal import Decimal, ROUND_DOWN\n",
+        "worker.py",
+    )
+    content = patch(
+        content,
+        "import database as db\nimport localization\n",
+        "import database as db\nimport utils\nimport localization\n",
+        "worker.py",
+    )
+
+    # 5b. Add bot_id and swap_engine params to Worker.__init__
     old_init_sig = (
         "    def __init__(self,\n"
         "                 bot,\n"
