@@ -556,3 +556,27 @@ notification_crypto_payment = ("\U0001f514 <b>New Crypto Payment</b>\n\n"
                                "TX Hash: <code>{tx_hash}</code>\n"
                                "Address: <code>{address}</code>")
 error_crypto_price_unavailable = "\u26a0\ufe0f Could not fetch {currency} price. Please try again."
+
+# --- Crypto wallet funding (added for Add Credit crypto support) ---
+menu_add_credit_crypto = "₿ Pay with Crypto"
+ask_add_credit_crypto_amount = ("💰 <b>Add Funds with Crypto</b>\n\n"
+                                "How much would you like to deposit? (USD)\n"
+                                "Min: ${min_usd}  —  Max: ${max_usd}")
+error_add_credit_crypto_amount = "⚠️ Invalid amount. Please enter a value between ${min_usd} and ${max_usd}."
+add_credit_select_crypto = "Select which cryptocurrency to pay with:"
+add_credit_crypto_invoice = ("💳 <b>Crypto Deposit</b>\n\n"
+                             "Deposit: <b>{amount_usd}</b>\n"
+                             "Send exactly <code>{crypto_amount}</code> <b>{currency}</b> to:\n\n"
+                             "<code>{address}</code>\n\n"
+                             "💱 Rate: 1 {currency} = {rate}\n\n"
+                             "After sending, tap <b>✅ I've Paid</b> and provide your TX hash.")
+add_credit_crypto_success = ("✅ <b>Deposit Recorded!</b>\n\n"
+                             "Amount: {amount_usd} ({crypto_amount} {currency})\n"
+                             "TX Hash: <code>{tx_hash}</code>\n\n"
+                             "An administrator will verify your payment shortly.\n"
+                             "Your balance will be updated after confirmation.")
+add_credit_crypto_admin_notification = ("🔔 <b>New Crypto Deposit</b>\n\n"
+                                        "User: {user}\n"
+                                        "Amount: {amount_usd} ({crypto_amount} {currency})\n"
+                                        "TX Hash: <code>{tx_hash}</code>\n"
+                                        "Address: <code>{address}</code>")
