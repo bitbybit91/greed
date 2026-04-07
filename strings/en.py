@@ -581,6 +581,7 @@ add_credit_crypto_success = ("✅ <b>Deposit Recorded!</b>\n\n"
                              "TX Hash: <code>{tx_hash}</code>\n\n"
                              "An administrator will verify your payment shortly.\n"
                              "Your balance will be updated after confirmation.")
+error_no_coins_configured = "⚠️ No coins configured for crypto payment. Please contact support."
 add_credit_crypto_admin_notification = ("🔔 <b>New Crypto Deposit</b>\n\n"
                                         "User: {user}\n"
                                         "Amount: {amount_usd} ({crypto_amount} {currency})\n"

@@ -1353,7 +1353,7 @@ class Worker(threading.Thread):
             try:
                 coins = list(self.cfg["CryptoSwap"]["Coins"].keys())
             except (KeyError, TypeError):
-                self.bot.send_message(self.chat.id, "No coins configured.")
+                self.bot.send_message(self.chat.id, self.loc.get("error_no_coins_configured"))
                 return
 
         coin_buttons = [[telegram.InlineKeyboardButton(c, callback_data=f"acrypto_{c}")] for c in coins]
