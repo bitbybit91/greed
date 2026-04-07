@@ -1,0 +1,31 @@
+[Unit]
+Name=greed-swap
+Description=Greed Multi-Bot Crypto Shop Platform
+Wants=network-online.target
+After=network-online.target nss-lookup.target
+
+[Service]
+Type=exec
+User=greed
+WorkingDirectory=/srv/greed
+ExecStart=/srv/greed/venv/bin/python -OO /srv/greed/core.py
+Environment=PYTHONUNBUFFERED=1
+
+# Memory limits for 7 bots
+MemoryMax=512M
+MemoryHigh=384M
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/greed
+
+[Install]
+WantedBy=multi-user.target
