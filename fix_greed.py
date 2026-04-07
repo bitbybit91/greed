@@ -407,49 +407,37 @@ def main():
         "worker.py",
     )
 
-    # 5b. Add bot_id and swap_engine params to Worker.__init__
+    # 5b. Add bot_id and swap_engine params to Worker.__init__ — split into two
+    #     small anchors so the patch is resilient to unrelated __init__ changes.
+
+    # 5b-1. Insert new keyword params into the function signature
     old_init_sig = (
-        "    def __init__(self,\n"
-        "                 bot,\n"
-        "                 chat: telegram.Chat,\n"
-        "                 telegram_user: telegram.User,\n"
-        "                 cfg: nuconfig.NuConfig,\n"
         "                 engine,\n"
         "                 *args,\n"
-        "                 **kwargs):\n"
-        "        # Initialize the thread\n"
-        "        super().__init__(name=f\"Worker {chat.id}\", *args, **kwargs)\n"
-        "        # Store the bot, chat info and config inside the class\n"
-        "        self.bot = bot\n"
-        "        self.chat: telegram.Chat = chat\n"
-        "        self.telegram_user: telegram.User = telegram_user\n"
-        "        self.cfg = cfg\n"
-        "        self.loc = None"
+        "                 **kwargs):"
     )
     new_init_sig = (
-        "    def __init__(self,\n"
-        "                 bot,\n"
-        "                 chat: telegram.Chat,\n"
-        "                 telegram_user: telegram.User,\n"
-        "                 cfg: nuconfig.NuConfig,\n"
         "                 engine,\n"
         "                 bot_id: str = None,\n"
         "                 swap_engine=None,\n"
         "                 *args,\n"
-        "                 **kwargs):\n"
-        "        # Initialize the thread\n"
-        "        super().__init__(name=f\"Worker {chat.id}\", *args, **kwargs)\n"
-        "        # Store the bot, chat info and config inside the class\n"
-        "        self.bot = bot\n"
-        "        self.chat: telegram.Chat = chat\n"
-        "        self.telegram_user: telegram.User = telegram_user\n"
+        "                 **kwargs):"
+    )
+    content = patch(content, old_init_sig, new_init_sig, "worker.py")
+
+    # 5b-2. Store bot_id and swap_engine in the instance after self.cfg = cfg
+    old_cfg_line = (
+        "        self.cfg = cfg\n"
+        "        self.loc = None"
+    )
+    new_cfg_line = (
         "        self.cfg = cfg\n"
         "        # Bot ID (None = main bot) and per-bot swap engine (BUG 1+3 FIX)\n"
         "        self.bot_id = bot_id\n"
         "        self.swap_engine = swap_engine\n"
         "        self.loc = None"
     )
-    content = patch(content, old_init_sig, new_init_sig, "worker.py")
+    content = patch(content, old_cfg_line, new_cfg_line, "worker.py")
 
     # 5b. Add None check after product.send_as_message() in __order_menu
     old_send_call = (
