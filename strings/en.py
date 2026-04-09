@@ -432,3 +432,152 @@ error_user_does_not_exist = "⚠️  The selected user does not exist."
 fatal_conversation_exception = "☢️ Oh no! An <b>error</b> interrupted this conversation\n" \
                                "The error was reported to the bot owner so that he can fix it.\n" \
                                "To restart the conversation, send the /start command again."
+
+
+# ---------------------------------------------------------------------------
+# Crypto swap strings
+# ---------------------------------------------------------------------------
+
+# Menu buttons
+menu_swap = "🔄 Swap Crypto"
+menu_wallet = "👛 My Wallet"
+menu_prices = "📈 Prices"
+menu_swap_history = "📋 Swap History"
+
+# Swap: select source currency
+swap_select_source = "🔄 <b>Crypto Swap</b>\n\nSelect the cryptocurrency you want to <b>send</b>:"
+
+# Swap: select destination currency
+swap_select_destination = "Select the cryptocurrency you want to <b>receive</b>:"
+
+# Swap: enter amount
+swap_enter_amount = "Enter the amount of <b>{currency}</b> you want to swap:\n\n" \
+                    "<i>Minimum: {min_amount}\n" \
+                    "Maximum: {max_amount}</i>"
+
+# Swap: quote confirmation
+swap_confirm_quote = "💱 <b>Swap Quote</b>\n\n" \
+                     "You send:    <b>{source_amount}</b>\n" \
+                     "You receive: <b>{destination_amount}</b>\n" \
+                     "Rate:        <b>{exchange_rate}</b>\n" \
+                     "Fee:         <b>{fee_amount}</b>\n\n" \
+                     "<i>This quote expires in {timeout} seconds.\n" \
+                     "Press Confirm to proceed.</i>"
+
+# Swap: success
+swap_success = "✅ <b>Swap Completed!</b>\n\n" \
+               "Sent:     <b>{source_amount}</b>\n" \
+               "Received: <b>{destination_amount}</b>\n" \
+               "Swap ID:  <code>{swap_id}</code>"
+
+# Swap: failed
+swap_failed = "❌ <b>Swap Failed</b>\n\nThe swap could not be completed. Please try again."
+
+# Swap: cancelled
+swap_cancelled = "🚫 Swap cancelled."
+
+# Swap: confirm button
+swap_confirm_button = "✅ Confirm"
+
+# Swap: cancel button
+swap_cancel_button = "❌ Cancel"
+
+# Wallet: balance header
+wallet_balance_header = "👛 <b>Your Crypto Wallet</b>\n\n"
+
+# Wallet: single balance line
+wallet_balance_line = "<b>{currency}:</b> {balance}\n"
+
+# Wallet: no balances
+wallet_no_balances = "Your wallet is empty. Deposit some crypto to get started."
+
+# Wallet: deposit address header
+wallet_deposit_address = "📥 <b>Deposit {currency}</b>\n\n" \
+                         "Send <b>{currency}</b> to this address:\n" \
+                         "<code>{address}</code>\n\n" \
+                         "<i>Only send {currency} to this address.</i>"
+
+# Wallet: no deposit address configured
+wallet_no_deposit_address = "⚠️ No deposit address is configured for {currency}."
+
+# Wallet: withdraw prompt
+wallet_withdraw_prompt = "📤 <b>Withdraw {currency}</b>\n\nEnter the destination address:"
+
+# Wallet: withdraw amount prompt
+wallet_withdraw_amount = "Enter the amount of <b>{currency}</b> to withdraw:"
+
+# Wallet: withdraw confirmation
+wallet_withdraw_confirm = "Withdraw <b>{amount}</b> to <code>{address}</code>?"
+
+# Wallet: withdraw submitted
+wallet_withdraw_submitted = "✅ Withdrawal request submitted."
+
+# Prices: header
+prices_header = "📈 <b>Current Exchange Rates</b>\n\n"
+
+# Prices: single rate line
+prices_rate_line = "{rate}\n"
+
+# Prices: failed to fetch
+prices_fetch_failed = "⚠️ Unable to fetch prices at this time. Please try again later."
+
+# Swap history: header
+swap_history_header = "📋 <b>Your Swap History</b>\n\n"
+
+# Swap history: single entry
+swap_history_entry = "#{swap_id} | {date}\n" \
+                     "  {source_amount} → {destination_amount}\n" \
+                     "  Status: <b>{status}</b>\n\n"
+
+# Swap history: no swaps
+swap_history_empty = "You haven't made any swaps yet."
+
+# Admin: pending swaps menu item
+admin_pending_swaps = "🔄 Pending Swaps"
+
+# Admin: pending swaps list header
+admin_pending_swaps_header = "🔄 <b>Pending Swaps</b>\n\n"
+
+# Admin: no pending swaps
+admin_no_pending_swaps = "There are no pending swaps at this time."
+
+# Admin: single pending swap entry
+admin_swap_entry = "Swap #{swap_id}\n" \
+                   "User: {user}\n" \
+                   "{source_amount} → {destination_amount}\n" \
+                   "Created: {date}\n\n"
+
+# Admin: approve swap button
+admin_approve_swap = "✅ Approve"
+
+# Admin: reject swap button
+admin_reject_swap = "❌ Reject"
+
+# Admin: swap approved
+admin_swap_approved = "✅ Swap #{swap_id} has been approved."
+
+# Admin: swap rejected
+admin_swap_rejected = "❌ Swap #{swap_id} has been rejected."
+
+# Admin: set fee
+admin_set_fee = "💰 Set Swap Fee"
+
+# Admin: ask fee percentage
+admin_ask_fee_percentage = "Enter the new default fee percentage (e.g. 0.5 for 0.5%):"
+
+# Admin: fee set successfully
+admin_fee_set = "✅ Default swap fee set to {fee}%."
+
+# Error: insufficient crypto balance
+error_insufficient_crypto_balance = "⚠️ Insufficient {currency} balance.\n" \
+                                    "Available: {available}\n" \
+                                    "Required:  {required}"
+
+# Error: pair not supported
+error_pair_not_supported = "⚠️ The trading pair {base}/{quote} is not supported or is currently inactive."
+
+# Error: price fetch failed
+error_price_fetch_failed = "⚠️ Failed to fetch current price. Please try again in a few moments."
+
+# Error: swap expired (quote timed out)
+error_swap_expired = "⏰ The swap quote has expired. Please initiate a new swap."

@@ -6,6 +6,11 @@ import toml
 log = logging.getLogger(__name__)
 CompareReport = Dict[str, Union[str, List[str], "Missing"]]
 
+# Keys that are intentionally absent from the template config but may appear
+# in user configs (e.g. multi-bot entries under [Bots.*]).  The comparison
+# logic skips these so they don't generate spurious "missing" warnings.
+_OPTIONAL_TOP_LEVEL_SECTIONS = {"Bots"}
+
 
 class NuConfig:
     def __init__(self, file: "TextIO"):
@@ -13,6 +18,10 @@ class NuConfig:
 
     def __getitem__(self, item):
         return self.data.__getitem__(item)
+
+    def get(self, key: str, default=None):
+        """Return ``self.data[key]`` or *default* if the key is absent."""
+        return self.data.get(key, default)
 
     def cmplog(self, other) -> bool:
         """Compare two different NuConfig objects and log information about which keys are missing or invalid.
@@ -67,6 +76,9 @@ class NuConfig:
         result = {}
 
         for key, value in self.items():
+            # Skip optional top-level sections that are not present in the template
+            if key in _OPTIONAL_TOP_LEVEL_SECTIONS:
+                continue
             try:
                 other_value = other[key]
             except KeyError:
