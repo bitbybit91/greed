@@ -7,7 +7,7 @@ log = logging.getLogger(__name__)
 CompareReport = Dict[str, Union[str, List[str], "Missing"]]
 
 # Top-level sections that are optional and should be skipped during template vs user config comparison
-_OPTIONAL_TOP_LEVEL_SECTIONS = {"CryptoSwap", "Bots"}
+_OPTIONAL_TOP_LEVEL_SECTIONS = {"CryptoSwap", "Bots", "PotatoChat"}
 
 
 class NuConfig:

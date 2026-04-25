@@ -31,6 +31,7 @@ engine = "sqlite:///database.sqlite"
 
 # Telegram bot parameters
 [Telegram]
+
 # Your bot token goes here. Get one from https://t.me/BotFather!
 token = "123456789:YOUR_TOKEN_GOES_HERE_______________"
 # Time in seconds before a conversation (thread) with no new messages expires
@@ -44,6 +45,17 @@ timed_out_pause = 1
 error_pause = 5
 # Number of connections to keep in the connection pool
 con_pool_size = 10
+
+
+# Potato Chat bot parameters (optional — leave enabled = false to use Telegram only)
+[PotatoChat]
+enabled = false
+token = "YOUR_POTATO_CHAT_TOKEN_HERE"
+api_base_url = "https://www.potatochat.com/api/bot/"
+timed_out_pause = 1
+error_pause = 5
+con_pool_size = 8
+long_polling_timeout = 30
 
 
 # General payment settings
