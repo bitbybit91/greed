@@ -93,7 +93,7 @@ def factory(cfg: nuconfig.NuConfig):
         def __init__(self, *args, **kwargs):
             base_url = cfg["PotatoChat"]["api_base_url"]
             token = cfg["PotatoChat"]["token"]
-            self.bot = telegram.Bot(token=token, base_url=base_url, *args, **kwargs)
+            self.bot = telegram.Bot(token=token, base_url=base_url, **kwargs)
 
         @catch_telegram_errors
         def send_message(self, *args, **kwargs):
@@ -222,7 +222,7 @@ def factory_with_token(cfg: nuconfig.NuConfig, token: str, base_url: str):
 
     class PotatoBot:
         def __init__(self, *args, **kwargs):
-            self.bot = telegram.Bot(token=token, base_url=base_url, *args, **kwargs)
+            self.bot = telegram.Bot(token=token, base_url=base_url, **kwargs)
 
         @catch_telegram_errors
         def send_message(self, *args, **kwargs):
