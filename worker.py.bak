@@ -18,19 +18,6 @@ import database as db
 import localization
 import nuconfig
 
-# ── greed-crypto additions ──────────────────────────────────────────
-try:
-    import toml as _toml
-    from crypto_manager import CryptoPaymentManager as _CryptoPaymentManager
-except ImportError:
-    _CryptoPaymentManager = None
-try:
-    import modes as _modes_pkg
-except ImportError:
-    _modes_pkg = None
-# GREED_CRYPTO_PATCHED
-# ─────────────────────────────────────────────────────────────────────
-
 log = logging.getLogger(__name__)
 
 
@@ -75,8 +62,6 @@ class Worker(threading.Thread):
         self.queue = queuem.Queue()
         # The current active invoice payload; reject all invoices with a different payload
         self.invoice_payload = None
-        # greed-crypto: crypto payment manager
-        self._crypto_mgr = None
         # The price class of this worker.
         self.Price = self.price_factory()
 
@@ -327,7 +312,53 @@ class Worker(threading.Thread):
             # Return the first capture group
             return match.group(1)
 
+    def __wait_for_precheckoutquery(self,
+                                    cancellable: bool = False) -> Union[telegram.PreCheckoutQuery, CancelSignal]:
+        """Continue getting updates until a precheckoutquery is received.
+        The payload is checked by the core before forwarding the message."""
+        log.debug("Waiting for a PreCheckoutQuery...")
+        while True:
+            # Get the next update
+            update = self.__receive_next_update()
+            # If a CancelSignal is received...
+            if isinstance(update, CancelSignal):
+                # And the wait is cancellable...
+                if cancellable:
+                    # Return the CancelSignal
+                    return update
+                else:
+                    # Ignore the signal
+                    continue
+            # Ensure the update contains a precheckoutquery
+            if update.pre_checkout_query is None:
+                continue
+            # Return the precheckoutquery
+            return update.pre_checkout_query
 
+    def __wait_for_successfulpayment(self,
+                                     cancellable: bool = False) -> Union[telegram.SuccessfulPayment, CancelSignal]:
+        """Continue getting updates until a successfulpayment is received."""
+        log.debug("Waiting for a SuccessfulPayment...")
+        while True:
+            # Get the next update
+            update = self.__receive_next_update()
+            # If a CancelSignal is received...
+            if isinstance(update, CancelSignal):
+                # And the wait is cancellable...
+                if cancellable:
+                    # Return the CancelSignal
+                    return update
+                else:
+                    # Ignore the signal
+                    continue
+            # Ensure the update contains a message
+            if update.message is None:
+                continue
+            # Ensure the message is a successfulpayment
+            if update.message.successful_payment is None:
+                continue
+            # Return the successfulpayment
+            return update.message.successful_payment
 
     def __wait_for_photo(self, cancellable: bool = False) -> Union[List[telegram.PhotoSize], CancelSignal]:
         """Continue getting updates until a photo is received, then return it."""
@@ -413,26 +444,12 @@ class Worker(threading.Thread):
         # Loop used to returning to the menu after executing a command
         while True:
             # Create a keyboard with the user main menu
-            # greed-crypto: mode-aware user menu
-            _active_mode = "SHOP_BOT"
-            try:
-                import modes as _m; _active_mode = _m.get_active_mode()
-            except ImportError:
-                pass
-            keyboard = []
-            if _active_mode == "SHOP_BOT":
-                keyboard = [[telegram.KeyboardButton(self.loc.get("menu_order"))],
-                             [telegram.KeyboardButton(self.loc.get("menu_order_status"))]]
-            elif _active_mode == "INVESTMENT_BOT":
-                keyboard = [[telegram.KeyboardButton("\U0001f4bc Investment Portal")]]
-            elif _active_mode == "SWAP_BOT":
-                keyboard = [[telegram.KeyboardButton("\U0001f504 Swap Crypto")]]
-            keyboard += [
-                [telegram.KeyboardButton(self.loc.get("menu_add_credit"))],
-                [telegram.KeyboardButton(self.loc.get("menu_language"))],
-                [telegram.KeyboardButton(self.loc.get("menu_help")),
-                 telegram.KeyboardButton(self.loc.get("menu_bot_info"))],
-            ]
+            keyboard = [[telegram.KeyboardButton(self.loc.get("menu_order"))],
+                        [telegram.KeyboardButton(self.loc.get("menu_order_status"))],
+                        [telegram.KeyboardButton(self.loc.get("menu_add_credit"))],
+                        [telegram.KeyboardButton(self.loc.get("menu_language"))],
+                        [telegram.KeyboardButton(self.loc.get("menu_help")),
+                         telegram.KeyboardButton(self.loc.get("menu_bot_info"))]]
             # Send the previously created keyboard to the user (ensuring it can be clicked only 1 time)
             self.bot.send_message(self.chat.id,
                                   self.loc.get("conversation_open_user_menu",
@@ -473,18 +490,6 @@ class Worker(threading.Thread):
             elif selection == self.loc.get("menu_help"):
                 # Go to the Help menu
                 self.__help_menu()
-            elif selection == "\U0001f4bc Investment Portal":
-                try:
-                    from modes.investment_mode import run_investment_menu
-                    run_investment_menu(self)
-                except ImportError:
-                    self.bot.send_message(self.chat.id, "Investment mode unavailable.")
-            elif selection == "\U0001f504 Swap Crypto":
-                try:
-                    from modes.swap_mode import run_swap_menu
-                    run_swap_menu(self)
-                except ImportError:
-                    self.bot.send_message(self.chat.id, "Swap mode unavailable.")
 
     def __order_menu(self):
         """User menu to order products from the shop."""
@@ -654,9 +659,13 @@ class Worker(threading.Thread):
         # Notify user in case of insufficient credit
         if credit_required > 0:
             self.bot.send_message(self.chat.id, self.loc.get("error_not_enough_credit"))
-            # Suggest crypto top-up for missing credit if refill on checkout is enabled
-            if self.cfg["Appearance"].get("refill_on_checkout", False):
-                self.__add_credit_crypto()
+            # Suggest payment for missing credit value if configuration allows refill
+            if self.cfg["Payments"]["CreditCard"]["credit_card_token"] != "" \
+                    and self.cfg["Appearance"]["refill_on_checkout"] \
+                    and self.Price(self.cfg["Payments"]["CreditCard"]["min_amount"]) <= \
+                    credit_required <= \
+                    self.Price(self.cfg["Payments"]["CreditCard"]["max_amount"]):
+                self.__make_payment(self.Price(credit_required))
         # If afer requested payment credit is still insufficient (either payment failure or cancel)
         if self.user.credit < self.__get_cart_value(cart):
             # Rollback all the changes
@@ -734,33 +743,149 @@ class Worker(threading.Thread):
         # TODO: maybe add a page displayer instead of showing the latest 5 orders
 
     def __add_credit_menu(self):
-        """Add more credit to the account (crypto only)."""
+        """Add more credit to the account."""
         log.debug("Displaying __add_credit_menu")
-        keyboard = []
+        # Create a payment methods keyboard
+        keyboard = list()
+        # Add the supported payment methods to the keyboard
+        # Cash
         if self.cfg["Payments"]["Cash"]["enable_pay_with_cash"]:
             keyboard.append([telegram.KeyboardButton(self.loc.get("menu_cash"))])
-        keyboard.append([telegram.KeyboardButton("\U0001f4b0 Pay with Crypto")])
+        # Telegram Payments
+        if self.cfg["Payments"]["CreditCard"]["credit_card_token"] != "":
+            keyboard.append([telegram.KeyboardButton(self.loc.get("menu_credit_card"))])
+        # Keyboard: go back to the previous menu
         keyboard.append([telegram.KeyboardButton(self.loc.get("menu_cancel"))])
-        self.bot.send_message(
-            self.chat.id,
-            self.loc.get("conversation_payment_method"),
-            reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True),
-        )
+        # Send the keyboard to the user
+        self.bot.send_message(self.chat.id, self.loc.get("conversation_payment_method"),
+                              reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+        # Wait for a reply from the user
         selection = self.__wait_for_specific_message(
-            [self.loc.get("menu_cash"), "\U0001f4b0 Pay with Crypto",
-             self.loc.get("menu_cancel")],
-            cancellable=True,
-        )
-        if selection == self.loc.get("menu_cash") and \
-                self.cfg["Payments"]["Cash"]["enable_pay_with_cash"]:
-            self.bot.send_message(
-                self.chat.id,
-                self.loc.get("payment_cash", user_cash_id=self.user.identifiable_str()),
-            )
-        elif selection == "\U0001f4b0 Pay with Crypto":
-            self.__add_credit_crypto()
-        # CancelSignal or menu_cancel → return silently
+            [self.loc.get("menu_cash"), self.loc.get("menu_credit_card"), self.loc.get("menu_cancel")],
+            cancellable=True)
+        # If the user has selected the Cash option...
+        if selection == self.loc.get("menu_cash") and self.cfg["Payments"]["Cash"]["enable_pay_with_cash"]:
+            # Go to the pay with cash function
+            self.bot.send_message(self.chat.id,
+                                  self.loc.get("payment_cash", user_cash_id=self.user.identifiable_str()))
+        # If the user has selected the Credit Card option...
+        elif selection == self.loc.get("menu_credit_card") and self.cfg["Payments"]["CreditCard"]["credit_card_token"]:
+            # Go to the pay with credit card function
+            self.__add_credit_cc()
+        # If the user has selected the Cancel option...
+        elif isinstance(selection, CancelSignal):
+            # Send him back to the previous menu
+            return
 
+    def __add_credit_cc(self):
+        """Add money to the wallet through a credit card payment."""
+        log.debug("Displaying __add_credit_cc")
+        # Create a keyboard to be sent later
+        presets = self.cfg["Payments"]["CreditCard"]["payment_presets"]
+        keyboard = [[telegram.KeyboardButton(str(self.Price(preset)))] for preset in presets]
+        keyboard.append([telegram.KeyboardButton(self.loc.get("menu_cancel"))])
+        # Boolean variable to check if the user has cancelled the action
+        cancelled = False
+        # Loop used to continue asking if there's an error during the input
+        while not cancelled:
+            # Send the message and the keyboard
+            self.bot.send_message(self.chat.id, self.loc.get("payment_cc_amount"),
+                                  reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+            # Wait until a valid amount is sent
+            selection = self.__wait_for_regex(r"([0-9]+(?:[.,][0-9]+)?|" + self.loc.get("menu_cancel") + r")",
+                                              cancellable=True)
+            # If the user cancelled the action
+            if isinstance(selection, CancelSignal):
+                # Exit the loop
+                cancelled = True
+                continue
+            # Convert the amount to an integer
+            value = self.Price(selection)
+            # Ensure the amount is within the range
+            if value > self.Price(self.cfg["Payments"]["CreditCard"]["max_amount"]):
+                self.bot.send_message(self.chat.id,
+                                      self.loc.get("error_payment_amount_over_max",
+                                                   max_amount=self.Price(self.cfg["CreditCard"]["max_amount"])))
+                continue
+            elif value < self.Price(self.cfg["Payments"]["CreditCard"]["min_amount"]):
+                self.bot.send_message(self.chat.id,
+                                      self.loc.get("error_payment_amount_under_min",
+                                                   min_amount=self.Price(self.cfg["CreditCard"]["min_amount"])))
+                continue
+            break
+        # If the user cancelled the action...
+        else:
+            # Exit the function
+            return
+        # Issue the payment invoice
+        self.__make_payment(amount=value)
+
+    def __make_payment(self, amount):
+        # Set the invoice active invoice payload
+        self.invoice_payload = str(uuid.uuid4())
+        # Create the price array
+        prices = [telegram.LabeledPrice(label=self.loc.get("payment_invoice_label"), amount=int(amount))]
+        # If the user has to pay a fee when using the credit card, add it to the prices list
+        fee = int(self.__get_total_fee(amount))
+        if fee > 0:
+            prices.append(telegram.LabeledPrice(label=self.loc.get("payment_invoice_fee_label"),
+                                                amount=fee))
+        # Create the invoice keyboard
+        inline_keyboard = telegram.InlineKeyboardMarkup([[telegram.InlineKeyboardButton(self.loc.get("menu_pay"),
+                                                                                        pay=True)],
+                                                         [telegram.InlineKeyboardButton(self.loc.get("menu_cancel"),
+                                                                                        callback_data="cmd_cancel")]])
+        # The amount is valid, send the invoice
+        self.bot.send_invoice(self.chat.id,
+                              title=self.loc.get("payment_invoice_title"),
+                              description=self.loc.get("payment_invoice_description", amount=str(amount)),
+                              payload=self.invoice_payload,
+                              provider_token=self.cfg["Payments"]["CreditCard"]["credit_card_token"],
+                              start_parameter="tempdeeplink",
+                              currency=self.cfg["Payments"]["currency"],
+                              prices=prices,
+                              need_name=self.cfg["Payments"]["CreditCard"]["name_required"],
+                              need_email=self.cfg["Payments"]["CreditCard"]["email_required"],
+                              need_phone_number=self.cfg["Payments"]["CreditCard"]["phone_required"],
+                              reply_markup=inline_keyboard,
+                              max_tip_amount=self.cfg["Payments"]["CreditCard"]["max_tip_amount"],
+                              suggested_tip_amounts=self.cfg["Payments"]["CreditCard"]["tip_presets"],
+                              )
+        # Wait for the precheckout query
+        precheckoutquery = self.__wait_for_precheckoutquery(cancellable=True)
+        # Check if the user has cancelled the invoice
+        if isinstance(precheckoutquery, CancelSignal):
+            # Exit the function
+            return
+        # Accept the checkout
+        self.bot.answer_pre_checkout_query(precheckoutquery.id, ok=True)
+        # Wait for the payment
+        successfulpayment = self.__wait_for_successfulpayment(cancellable=False)
+        # Create a new database transaction
+        transaction = db.Transaction(user=self.user,
+                                     value=int(amount),
+                                     provider="Credit Card",
+                                     telegram_charge_id=successfulpayment.telegram_payment_charge_id,
+                                     provider_charge_id=successfulpayment.provider_payment_charge_id)
+
+        if successfulpayment.order_info is not None:
+            transaction.payment_name = successfulpayment.order_info.name
+            transaction.payment_email = successfulpayment.order_info.email
+            transaction.payment_phone = successfulpayment.order_info.phone_number
+        # Update the user's credit
+        self.user.recalculate_credit()
+        # Commit all the changes
+        self.session.commit()
+
+    def __get_total_fee(self, amount):
+        # Calculate a fee for the required amount
+        fee_percentage = self.cfg["Payments"]["CreditCard"]["fee_percentage"] / 100
+        fee_fixed = self.cfg["Payments"]["CreditCard"]["fee_fixed"]
+        total_fee = amount * fee_percentage + fee_fixed
+        if total_fee > 0:
+            return total_fee
+        # Set the fee to 0 to ensure no accidental discounts are applied
+        return 0
 
     def __bot_info(self):
         """Send information about the bot."""
@@ -785,9 +910,6 @@ class Worker(threading.Thread):
                 keyboard.append([self.loc.get("menu_transactions"), self.loc.get("menu_csv")])
             if self.admin.is_owner:
                 keyboard.append([self.loc.get("menu_edit_admins")])
-                keyboard.append(["\U0001f916 Bot Mode"])
-                keyboard.append(["\U0001f4b0 Crypto Addresses"])
-                keyboard.append(["\U0001f4e6 Import Products (WooCommerce)"])
             keyboard.append([self.loc.get("menu_user_mode")])
             # Send the previously created keyboard to the user (ensuring it can be clicked only 1 time)
             self.bot.send_message(self.chat.id, self.loc.get("conversation_open_admin_menu"),
