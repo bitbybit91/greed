@@ -1,0 +1,16 @@
+# crypto_addresses.toml
+# =====================
+# Configure your cryptocurrency deposit addresses here.
+# Leave value blank ("") to disable that coin.
+
+[addresses]
+BTC   = ""   # Bitcoin  — e.g. "bc1qxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+ETH   = ""   # Ethereum — e.g. "0xYourEthAddress"
+XMR   = ""   # Monero   — e.g. "4YourMoneroAddress..."
+USDT  = ""   # Tether (TRC-20 or ERC-20 address)
+USDC  = ""   # USD Coin
+LTC   = ""   # Litecoin — e.g. "LYourLitecoinAddress"
+BNB   = ""   # BNB Smart Chain
+SOL   = ""   # Solana
+DOGE  = ""   # Dogecoin
+TRX   = ""   # Tron (TRC-20)

@@ -1,0 +1,17 @@
+[Unit]
+Description=Greed Crypto Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/runner/work/greed/greed
+ExecStart=/home/runner/work/greed/greed/venv/bin/python /home/runner/work/greed/greed/greed_cryptorefactor.py --no-patch
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/runner/work/greed/greed/logs/systemd.log
+StandardError=append:/home/runner/work/greed/greed/logs/systemd.log
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,43 @@
+# mode_config.toml
+# ================
+# Controls the active bot mode and per-mode settings.
+
+[bot]
+# Active mode: SHOP_BOT | INVESTMENT_BOT | SWAP_BOT
+active_mode = "SHOP_BOT"
+
+# Enable / disable modes entirely
+shop_enabled       = true
+investment_enabled = true
+swap_enabled       = true
+
+[woocommerce]
+# Path to WooCommerce product export XML (relative to bot root or absolute)
+xml_path = "products.xml"
+
+[investment]
+# Define investment plans as array of tables
+[[investment.plans]]
+id            = "basic"
+name          = "Basic Plan"
+duration_days = 7
+roi_percent   = 5.0
+min_usd       = 50
+
+[[investment.plans]]
+id            = "standard"
+name          = "Standard Plan"
+duration_days = 14
+roi_percent   = 12.0
+min_usd       = 100
+
+[[investment.plans]]
+id            = "premium"
+name          = "Premium Plan"
+duration_days = 30
+roi_percent   = 30.0
+min_usd       = 250
+
+[swap]
+# Owner spread / profit margin percentage applied to every swap
+spread_percent = 2.0
