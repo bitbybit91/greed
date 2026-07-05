@@ -147,6 +147,9 @@ menu_cash = "💵 With cash"
 # User menu: credit card
 menu_credit_card = "💳 By credit card"
 
+# User menu: crypto
+menu_crypto = "₿ Pay with Crypto"
+
 # Admin menu: products
 menu_products = "📝️ Products"
 
@@ -315,6 +318,12 @@ payment_cash = "You can pay in cash at the physical location of the store.\n" \
                "Pay at checkout, and give this id to the manager:\n" \
                "<b>{user_cash_id}</b>"
 
+# Payment: crypto deposit addresses
+payment_crypto = "💰 Send your crypto to one of the following addresses:\n\n" \
+                 "{addresses}\n\n" \
+                 "<b>⚠️ Important:</b> After sending, please contact the store manager with your " \
+                 "transaction ID / hash so they can credit your balance manually."
+
 # Payment: invoice amount
 payment_cc_amount = "How many funds do you want to add to your wallet?\n" \
                     "\n" \
@@ -427,6 +436,10 @@ error_no_orders = "⚠️  You haven't placed any order yet, so there is nothing
 
 # Error: selected user does not exist
 error_user_does_not_exist = "⚠️  The selected user does not exist."
+
+# Error: crypto payments are enabled but no wallet addresses are configured
+error_no_crypto_addresses = "⚠️ No cryptocurrency addresses have been configured by the store owner.\n" \
+                            "Please use a different payment method or contact the store."
 
 # Fatal: conversation raised an exception
 fatal_conversation_exception = "☢️ Oh no! An <b>error</b> interrupted this conversation\n" \

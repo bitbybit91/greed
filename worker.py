@@ -754,6 +754,9 @@ class Worker(threading.Thread):
         # Telegram Payments
         if self.cfg["Payments"]["CreditCard"]["credit_card_token"] != "":
             keyboard.append([telegram.KeyboardButton(self.loc.get("menu_credit_card"))])
+        # Crypto payments
+        if self.cfg["Payments"]["Crypto"]["enable_crypto"]:
+            keyboard.append([telegram.KeyboardButton(self.loc.get("menu_crypto"))])
         # Keyboard: go back to the previous menu
         keyboard.append([telegram.KeyboardButton(self.loc.get("menu_cancel"))])
         # Send the keyboard to the user
@@ -761,7 +764,8 @@ class Worker(threading.Thread):
                               reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
         # Wait for a reply from the user
         selection = self.__wait_for_specific_message(
-            [self.loc.get("menu_cash"), self.loc.get("menu_credit_card"), self.loc.get("menu_cancel")],
+            [self.loc.get("menu_cash"), self.loc.get("menu_credit_card"),
+             self.loc.get("menu_crypto"), self.loc.get("menu_cancel")],
             cancellable=True)
         # If the user has selected the Cash option...
         if selection == self.loc.get("menu_cash") and self.cfg["Payments"]["Cash"]["enable_pay_with_cash"]:
@@ -772,6 +776,10 @@ class Worker(threading.Thread):
         elif selection == self.loc.get("menu_credit_card") and self.cfg["Payments"]["CreditCard"]["credit_card_token"]:
             # Go to the pay with credit card function
             self.__add_credit_cc()
+        # If the user has selected the Crypto option...
+        elif selection == self.loc.get("menu_crypto") and self.cfg["Payments"]["Crypto"]["enable_crypto"]:
+            # Go to the pay with crypto function
+            self.__add_credit_crypto()
         # If the user has selected the Cancel option...
         elif isinstance(selection, CancelSignal):
             # Send him back to the previous menu
@@ -805,12 +813,12 @@ class Worker(threading.Thread):
             if value > self.Price(self.cfg["Payments"]["CreditCard"]["max_amount"]):
                 self.bot.send_message(self.chat.id,
                                       self.loc.get("error_payment_amount_over_max",
-                                                   max_amount=self.Price(self.cfg["CreditCard"]["max_amount"])))
+                                                   max_amount=self.Price(self.cfg["Payments"]["CreditCard"]["max_amount"])))
                 continue
             elif value < self.Price(self.cfg["Payments"]["CreditCard"]["min_amount"]):
                 self.bot.send_message(self.chat.id,
                                       self.loc.get("error_payment_amount_under_min",
-                                                   min_amount=self.Price(self.cfg["CreditCard"]["min_amount"])))
+                                                   min_amount=self.Price(self.cfg["Payments"]["CreditCard"]["min_amount"])))
                 continue
             break
         # If the user cancelled the action...
@@ -819,6 +827,33 @@ class Worker(threading.Thread):
             return
         # Issue the payment invoice
         self.__make_payment(amount=value)
+
+    def __add_credit_crypto(self):
+        """Show crypto deposit addresses to the user."""
+        log.debug("Displaying __add_credit_crypto")
+        cfg_crypto = self.cfg["Payments"]["Crypto"]
+        addresses = []
+        if cfg_crypto.get("bitcoin_address", ""):
+            addresses.append(
+                f"<b>Bitcoin (BTC):</b>\n<code>{cfg_crypto['bitcoin_address']}</code>"
+            )
+        if cfg_crypto.get("ethereum_address", ""):
+            addresses.append(
+                f"<b>Ethereum (ETH):</b>\n<code>{cfg_crypto['ethereum_address']}</code>"
+            )
+        if cfg_crypto.get("usdt_trc20_address", ""):
+            addresses.append(
+                f"<b>USDT (TRC20 / TRON):</b>\n<code>{cfg_crypto['usdt_trc20_address']}</code>"
+            )
+        if cfg_crypto.get("usdt_erc20_address", ""):
+            addresses.append(
+                f"<b>USDT (ERC20 / Ethereum):</b>\n<code>{cfg_crypto['usdt_erc20_address']}</code>"
+            )
+        if not addresses:
+            self.bot.send_message(self.chat.id, self.loc.get("error_no_crypto_addresses"))
+            return
+        addresses_text = "\n\n".join(addresses)
+        self.bot.send_message(self.chat.id, self.loc.get("payment_crypto", addresses=addresses_text))
 
     def __make_payment(self, amount):
         # Set the invoice active invoice payload
@@ -872,6 +907,8 @@ class Worker(threading.Thread):
             transaction.payment_name = successfulpayment.order_info.name
             transaction.payment_email = successfulpayment.order_info.email
             transaction.payment_phone = successfulpayment.order_info.phone_number
+        # Add the transaction to the session
+        self.session.add(transaction)
         # Update the user's credit
         self.user.recalculate_credit()
         # Commit all the changes
@@ -1164,8 +1201,10 @@ class Worker(threading.Thread):
             # Check if the order hasn't been already cleared
             if order.delivery_date is not None or order.refund_date is not None:
                 # Notify the admin and skip that order
-                self.bot.edit_message_text(self.chat.id, self.loc.get("error_order_already_cleared"))
-                break
+                self.bot.edit_message_text(chat_id=self.chat.id,
+                                           message_id=update.message.message_id,
+                                           text=self.loc.get("error_order_already_cleared"))
+                continue
             # If the user pressed the complete order button, complete the order
             if update.data == "order_complete":
                 # Mark the order as complete

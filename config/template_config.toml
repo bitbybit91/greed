@@ -103,6 +103,22 @@ email_required = true
 phone_required = true
 
 
+# Cryptocurrency payment settings
+[Payments.Crypto]
+# Display the "Pay with Crypto" option in the Add Credit menu
+# When enabled, the bot shows the wallet addresses below so the user can send crypto manually.
+# After the user sends crypto, the store owner must manually credit the user's balance
+# using the "Create transaction" option in the admin menu.
+enable_crypto = false
+# Wallet addresses - leave a field empty ("") to hide that coin from the deposit screen
+bitcoin_address = ""
+ethereum_address = ""
+# USDT on the TRON network (TRC20) - lower fees, recommended for USDT
+usdt_trc20_address = ""
+# USDT on the Ethereum network (ERC20)
+usdt_erc20_address = ""
+
+
 # Bot appearance settings
 [Appearance]
 # Display the full order information to the customers instead of the shortened version
