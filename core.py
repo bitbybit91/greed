@@ -103,7 +103,7 @@ def main():
             ("orders", "shipping_address", "TEXT"),
         ]:
             try:
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_def}")
+                conn.execute(sqlalchemy.text(f"ALTER TABLE {table} ADD COLUMN {col} {col_def}"))
                 log.debug(f"Added column {table}.{col}")
             except Exception:
                 pass  # Column already exists

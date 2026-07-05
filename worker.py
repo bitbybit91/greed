@@ -1,6 +1,7 @@
 import os
 import sys
 import datetime
+import json
 import logging
 import queue as queuem
 import re
@@ -547,7 +548,6 @@ class Worker(threading.Thread):
 
     def __shipping_details_menu(self):
         """Collect or update the user's shipping details (name, address, city, state, zip, country)."""
-        import json
         log.debug("Displaying __shipping_details_menu")
         cancel = telegram.InlineKeyboardMarkup([[
             telegram.InlineKeyboardButton(self.loc.get("menu_skip"), callback_data="cmd_cancel")
@@ -577,11 +577,17 @@ class Worker(threading.Thread):
             if isinstance(cb, CancelSignal) or cb.data != "shipping_update":
                 return
 
-        # Collect each field
-        fields = ["Full Name", "Street Address", "City", "State/Province", "ZIP/Postal Code", "Country"]
-        keys = ["name", "address", "city", "state", "zip", "country"]
+        # Collect each field using (label, key) tuples to keep them in sync
+        field_defs = [
+            ("Full Name", "name"),
+            ("Street Address", "address"),
+            ("City", "city"),
+            ("State/Province", "state"),
+            ("ZIP/Postal Code", "zip"),
+            ("Country", "country"),
+        ]
         data = {}
-        for field, key in zip(fields, keys):
+        for field, key in field_defs:
             self.bot.send_message(
                 self.chat.id,
                 f"📦 Enter your <b>{field}</b>:",
@@ -770,12 +776,11 @@ class Worker(threading.Thread):
         # Wait for user input
         notes = self.__wait_for_regex(r"(.*)", cancellable=True)
         # Build the final notes string, appending shipping details if available
-        import json as _json
         notes_text = notes if not isinstance(notes, CancelSignal) else ""
         shipping_snapshot = None
         if self.user.shipping_details:
             try:
-                sd = _json.loads(self.user.shipping_details)
+                sd = json.loads(self.user.shipping_details)
                 shipping_text = (
                     f"\n\n📦 Shipping: {sd.get('name', '')} | {sd.get('address', '')}, "
                     f"{sd.get('city', '')}, {sd.get('state', '')} {sd.get('zip', '')} "
