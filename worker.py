@@ -833,19 +833,19 @@ class Worker(threading.Thread):
         log.debug("Displaying __add_credit_crypto")
         cfg_crypto = self.cfg["Payments"]["Crypto"]
         addresses = []
-        if cfg_crypto.get("bitcoin_address", ""):
+        if cfg_crypto.get("bitcoin_address"):
             addresses.append(
                 f"<b>Bitcoin (BTC):</b>\n<code>{cfg_crypto['bitcoin_address']}</code>"
             )
-        if cfg_crypto.get("ethereum_address", ""):
+        if cfg_crypto.get("ethereum_address"):
             addresses.append(
                 f"<b>Ethereum (ETH):</b>\n<code>{cfg_crypto['ethereum_address']}</code>"
             )
-        if cfg_crypto.get("usdt_trc20_address", ""):
+        if cfg_crypto.get("usdt_trc20_address"):
             addresses.append(
                 f"<b>USDT (TRC20 / TRON):</b>\n<code>{cfg_crypto['usdt_trc20_address']}</code>"
             )
-        if cfg_crypto.get("usdt_erc20_address", ""):
+        if cfg_crypto.get("usdt_erc20_address"):
             addresses.append(
                 f"<b>USDT (ERC20 / Ethereum):</b>\n<code>{cfg_crypto['usdt_erc20_address']}</code>"
             )

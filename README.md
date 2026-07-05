@@ -256,7 +256,7 @@ Full template: [`config/template_config.toml`](config/template_config.toml)
 
 | Section | Key | Default | Description |
 |---------|-----|---------|-------------|
-| `[Language]` | `default_language` | `"it"` | Default language code |
+| `[Language]` | `default_language` | `"it"` (template default; recommended: `"en"`) | Default language code |
 | `[Language]` | `fallback_language` | `"en"` | Fallback for missing strings |
 | `[Language]` | `enabled_languages` | all | List of enabled language codes |
 | `[Database]` | `engine` | SQLite | SQLAlchemy database URI |
