@@ -1068,11 +1068,23 @@ class WooCommerceXMLImporter:
             or self._get_text(item, "excerpt:encoded")
             or ""
         )
-        # Clean HTML tags from description
-        description = etree.tostring(
-            etree.fromstring(f"<div>{description}</div>"),
-            encoding="unicode", method="text"
-        ).strip() if description else ""
+        # Strip HTML tags from description safely (no string-concatenation injection)
+        if description:
+            try:
+                from html.parser import HTMLParser as _HTMLParser
+                class _Stripper(_HTMLParser):
+                    def __init__(self):
+                        super().__init__()
+                        self._parts: list = []
+                    def handle_data(self, data: str) -> None:
+                        self._parts.append(data)
+                    def get_text(self) -> str:
+                        return "".join(self._parts).strip()
+                stripper = _Stripper()
+                stripper.feed(description)
+                description = stripper.get_text()
+            except Exception:
+                description = ""
 
         # Price from _regular_price or _price meta
         price_str = (
@@ -1901,18 +1913,19 @@ class BotSupervisor:
             log.warning(f"Heartbeat failed: {exc}")
             return False
 
-    def _log_crash(self, returncode: int, stderr_tail: str):
+    def _log_crash(self, returncode: int, output_tail: str):
         with open(self.CRASH_LOG, "a") as f:
             f.write(f"\n{'='*60}\n")
             f.write(f"CRASH at {datetime.datetime.now().isoformat()} "
                     f"| exit code: {returncode}\n")
-            f.write(stderr_tail[-2000:] if stderr_tail else "(no stderr)\n")
+            f.write(output_tail[-2000:] if output_tail else "(no output captured)\n")
 
     # ── Main Loop ────────────────────────────────────────────────────────
     def run(self):
         log.info("Supervisor started. Launching bot …")
         while not self._shutdown:
             self._start_bot()
+            start_ts = time.time()
             # Monitor loop
             while not self._shutdown:
                 time.sleep(1)
@@ -1925,14 +1938,27 @@ class BotSupervisor:
                         log.warning("Heartbeat failed — will restart if process exits.")
                 # If process has ended, handle restart
                 if rc is not None:
-                    stderr_tail = ""
+                    # Collect both stdout and stderr for the crash log
+                    output_tail = ""
                     try:
-                        stderr_tail = self._process.stderr.read() if self._process.stderr else ""
+                        if self._process.stdout:
+                            output_tail += self._process.stdout.read()
                     except Exception:
                         pass
-                    log.error(f"Bot process exited with code {rc}. "
+                    try:
+                        if self._process.stderr:
+                            output_tail += self._process.stderr.read()
+                    except Exception:
+                        pass
+                    # If the bot ran for more than 60 s, treat it as a "clean" start
+                    # and reset the backoff counter to avoid permanent max-delay.
+                    uptime = time.time() - start_ts
+                    if uptime >= 60:
+                        self._backoff = 1
+                    log.error(f"Bot process exited with code {rc} "
+                               f"(uptime {uptime:.0f}s). "
                                f"Restarting in {self._backoff}s …")
-                    self._log_crash(rc, stderr_tail)
+                    self._log_crash(rc, output_tail)
                     time.sleep(self._backoff)
                     self._backoff = min(self._backoff * 2, self.MAX_BACKOFF)
                     break
@@ -1944,10 +1970,12 @@ class BotSupervisor:
         log.info(f"Starting bot: {self.python_exe} core.py")
         self._process = subprocess.Popen(
             [str(self.python_exe), "core.py"],
-            stderr=subprocess.PIPE,
+            stdout=subprocess.PIPE,   # capture stdout for crash logs
+            stderr=subprocess.PIPE,   # capture stderr for crash logs
             text=True,
         )
-        self._backoff = max(1, self._backoff // 2)  # reduce backoff on successful start
+        # Reduce backoff so repeated fast restarts gradually recover
+        self._backoff = max(1, self._backoff // 2)
 
 
 # ════════════════════════════════════════════════════════════════════════════

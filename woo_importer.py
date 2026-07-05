@@ -78,11 +78,23 @@ class WooCommerceXMLImporter:
             or self._get_text(item, "excerpt:encoded")
             or ""
         )
-        # Clean HTML tags from description
-        description = etree.tostring(
-            etree.fromstring(f"<div>{description}</div>"),
-            encoding="unicode", method="text"
-        ).strip() if description else ""
+        # Strip HTML tags from description safely (no string-concatenation injection)
+        if description:
+            try:
+                from html.parser import HTMLParser as _HTMLParser
+                class _Stripper(_HTMLParser):
+                    def __init__(self):
+                        super().__init__()
+                        self._parts: list = []
+                    def handle_data(self, data: str) -> None:
+                        self._parts.append(data)
+                    def get_text(self) -> str:
+                        return "".join(self._parts).strip()
+                stripper = _Stripper()
+                stripper.feed(description)
+                description = stripper.get_text()
+            except Exception:
+                description = ""
 
         # Price from _regular_price or _price meta
         price_str = (
