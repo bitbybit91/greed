@@ -347,7 +347,7 @@ docker run \
   --volume "$(pwd)/config:/etc/greed" \
   --volume "$(pwd)/strings:/usr/src/greed/strings" \
   --volume "$(pwd)/data:/var/lib/greed" \
-  ghcr.io/steffo49/greed
+  ghcr.io/steffo99/greed
 ```
 
 The three `--volume` mounts are:
@@ -434,7 +434,7 @@ greed/
 ## Frequently Asked Questions
 
 **Can I use a PostgreSQL database instead of SQLite?**
-Yes. Set `engine` in `[Database]` to a PostgreSQL URL, e.g. `******localhost/greed`, or override it with the `DB_ENGINE` environment variable. You'll need to `pip install psycopg2-binary` as well.
+Yes. Set `engine` in `[Database]` to a PostgreSQL URL, e.g. `postgresql://YOUR_DB_USER:YOUR_DB_PASS@localhost/greed`, or override it with the `DB_ENGINE` environment variable. You'll also need to `pip install psycopg2-binary`.
 
 **How do I add a new language?**
 Copy any existing file from `strings/` (e.g. `strings/en.py`), rename it to your [IETF language tag](https://en.wikipedia.org/wiki/IETF_language_tag) (e.g. `strings/de.py`), translate the strings inside, and add the tag to `enabled_languages` in your config.
