@@ -439,15 +439,27 @@ menu_buy_bitcoin = "💰 Buy Bitcoin"
 # Menu: get a wallet
 menu_get_wallet = "📱 Get a Wallet"
 
-# Buy bitcoin informational text
-buy_bitcoin_text = "💰 <b>Buy Bitcoin</b>\n" \
-                   "\n" \
-                   "Purchase Bitcoin directly from these trusted peer-to-peer exchanges:\n" \
-                   "\n" \
-                   "• <b>LocalCoinSwap</b> — P2P exchange with 300+ payment methods\n" \
-                   "• <b>Paxful</b> — Buy Bitcoin with gift cards, bank transfer, and more\n" \
-                   "\n" \
-                   "Tap a link below to get started:"
+# Menu: shipping details
+menu_shipping_details = "📦 Shipping Details"
+
+# Shipping details: prompt header
+shipping_details_header = "📦 <b>Enter Shipping Details</b>\n\nWe need your address to deliver your order."
+
+# Buy bitcoin informational text (updated: removed Paxful, added Binance and CoinATMRadar)
+buy_bitcoin_text = (
+    "💰 <b>Need to Buy Cryptocurrency?</b>\n\n"
+    "Use one of these trusted platforms to purchase crypto:\n\n"
+    "• <b>LocalCoinSwap</b> — P2P exchange, 300+ payment methods, no KYC\n"
+    "• <b>Binance</b> — World's largest crypto exchange\n"
+    "• <b>CoinATMRadar</b> — Find a Bitcoin ATM near you\n\n"
+    "Tap a button below:"
+)
+
+# Shown during checkout before displaying crypto invoice (one-time resource panel)
+crypto_buy_resources = (
+    "💡 <b>Need to buy crypto first?</b>\n\n"
+    "Use one of these resources, then come back and complete your payment:"
+)
 
 # Get wallet informational text
 get_wallet_text = "📱 <b>Get a Crypto Wallet</b>\n" \

@@ -33,6 +33,12 @@ class User(TableDeclarativeBase):
     # Current wallet credit
     credit = Column(Integer, nullable=False)
 
+    # JSON-encoded shipping details (full name, address, city, state, zip, country)
+    shipping_details = Column(Text, nullable=True)
+
+    # Whether the user has completed at least one verified crypto payment
+    payment_verified = Column(Boolean, default=False)
+
     # Extra table parameters
     __tablename__ = "users"
 
@@ -264,6 +270,9 @@ class Order(TableDeclarativeBase):
     # Which bot this order was placed through
     bot_id = Column(String, nullable=True, default=None)
 
+    # Shipping address snapshot at time of order (JSON-encoded)
+    shipping_address = Column(Text, nullable=True)
+
     # Extra table parameters
     __tablename__ = "orders"
 
@@ -289,7 +298,7 @@ class Order(TableDeclarativeBase):
                              status_text=status_text,
                              items=items,
                              notes=self.notes,
-                             value=str(w.Price(-self.transaction.value))) + \
+                             value=str(w.Price(-self.transaction.value)) if self.transaction else "crypto payment") + \
                    (w.loc.get("refund_reason", reason=self.refund_reason) if self.refund_date is not None else "")
         else:
             return status_emoji + " " + \
@@ -299,7 +308,7 @@ class Order(TableDeclarativeBase):
                              date=self.creation_date.isoformat(),
                              items=items,
                              notes=self.notes if self.notes is not None else "",
-                             value=str(w.Price(-self.transaction.value))) + \
+                             value=str(w.Price(-self.transaction.value)) if self.transaction else "crypto payment") + \
                    (w.loc.get("refund_reason", reason=self.refund_reason) if self.refund_date is not None else "")
 
 

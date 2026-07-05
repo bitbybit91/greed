@@ -94,6 +94,20 @@ def main():
     log.debug("Preparing the tables through deferred reflection...")
     sed.DeferredReflection.prepare(engine)
 
+    # Add new columns to existing tables if they don't exist (SQLite forward migration)
+    log.debug("Running SQLite column migrations...")
+    with engine.connect() as conn:
+        for table, col, col_def in [
+            ("users", "shipping_details", "TEXT"),
+            ("users", "payment_verified", "INTEGER DEFAULT 0"),
+            ("orders", "shipping_address", "TEXT"),
+        ]:
+            try:
+                conn.execute(sqlalchemy.text(f"ALTER TABLE {table} ADD COLUMN {col} {col_def}"))
+                log.debug(f"Added column {table}.{col}")
+            except Exception:
+                pass  # Column already exists
+
     # Create a bot instance
     bot = duckbot.factory(user_cfg)(request=telegram.utils.request.Request(user_cfg["Telegram"]["con_pool_size"]))
 
