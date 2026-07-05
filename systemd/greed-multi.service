@@ -1,0 +1,27 @@
+# /etc/systemd/system/greed-multi.service
+# Runs the all-in-one greed supervisor (all 7 bots in one process).
+#
+# Install:
+#   sudo cp /etc/systemd/system/greed-multi.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now greed-multi.service
+#
+[Unit]
+Description=Greed Multi-Instance Bot Supervisor (7 bots)
+Wants=network-online.target
+After=network-online.target nss-lookup.target
+
+[Service]
+Type=simple
+User=runner
+WorkingDirectory=/home/runner/work/greed/greed
+ExecStart=/home/runner/work/greed/greed/venv/bin/python /home/runner/work/greed/greed/greed_multi_instance.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=greed-multi
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

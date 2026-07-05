@@ -1,0 +1,23 @@
+# /etc/systemd/system/greed-bot@.service
+# Template unit — use with:  systemctl start greed-bot@1 ... greed-bot@7
+#
+[Unit]
+Description=Greed Bot Instance %i
+Wants=network-online.target
+After=network-online.target nss-lookup.target
+
+[Service]
+Type=simple
+User=runner
+WorkingDirectory=/home/runner/work/greed/greed
+ExecStart=/home/runner/work/greed/greed/venv/bin/python -OO /home/runner/work/greed/greed/core.py 
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:/home/runner/work/greed/greed/logs/instance_%i.log
+StandardError=append:/home/runner/work/greed/greed/logs/instance_%i.log
+SyslogIdentifier=greed-bot-%i
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/home/runner/work/greed/greed/config/instances/instance_%i.env
+
+[Install]
+WantedBy=greed-bots.target

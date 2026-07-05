@@ -1,0 +1,11 @@
+# /etc/systemd/system/greed-bots.target
+# Groups all 7 bot instances — start/stop all with:
+#   sudo systemctl start greed-bots.target
+#   sudo systemctl stop  greed-bots.target
+#
+[Unit]
+Description=All Greed Bot Instances
+Wants=greed-bot@1.service greed-bot@2.service greed-bot@3.service greed-bot@4.service greed-bot@5.service greed-bot@6.service greed-bot@7.service
+
+[Install]
+WantedBy=multi-user.target
