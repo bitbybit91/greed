@@ -459,6 +459,7 @@ class Worker(threading.Thread):
             keyboard = [[telegram.KeyboardButton(self.loc.get("menu_order"))],
                         [telegram.KeyboardButton(self.loc.get("menu_order_status"))],
                         [telegram.KeyboardButton(self.loc.get("menu_add_credit"))],
+                        [telegram.KeyboardButton(self.loc.get("menu_shipping_details"))],
                         [telegram.KeyboardButton(self.loc.get("menu_language"))],
                         [telegram.KeyboardButton(self.loc.get("menu_help")),
                          telegram.KeyboardButton(self.loc.get("menu_bot_info"))],
@@ -474,6 +475,7 @@ class Worker(threading.Thread):
                 self.loc.get("menu_order"),
                 self.loc.get("menu_order_status"),
                 self.loc.get("menu_add_credit"),
+                self.loc.get("menu_shipping_details"),
                 self.loc.get("menu_language"),
                 self.loc.get("menu_help"),
                 self.loc.get("menu_bot_info"),
@@ -494,6 +496,10 @@ class Worker(threading.Thread):
             elif selection == self.loc.get("menu_add_credit"):
                 # Display the add credit menu
                 self.__add_credit_menu()
+            # If the user has selected the Shipping Details option...
+            elif selection == self.loc.get("menu_shipping_details"):
+                # Open the shipping details menu
+                self.__shipping_details_menu()
             # If the user has selected the Language option...
             elif selection == self.loc.get("menu_language"):
                 # Display the language menu
@@ -517,13 +523,15 @@ class Worker(threading.Thread):
         """Display information about buying Bitcoin with external links."""
         log.debug("Displaying __buy_bitcoin")
         inline_keyboard = telegram.InlineKeyboardMarkup([
-            [telegram.InlineKeyboardButton("Buy on LocalCoinSwap",
+            [telegram.InlineKeyboardButton("💱 LocalCoinSwap",
                                            url="https://localcoinswap.com/")],
-            [telegram.InlineKeyboardButton("Buy on Paxful",
-                                           url="https://paxful.com/")]
+            [telegram.InlineKeyboardButton("🏦 Binance",
+                                           url="https://www.binance.com/")],
+            [telegram.InlineKeyboardButton("🏧 Find a Bitcoin ATM",
+                                           url="https://coinatmradar.com/")]
         ])
         self.bot.send_message(self.chat.id, self.loc.get("buy_bitcoin_text"),
-                              reply_markup=inline_keyboard)
+                              reply_markup=inline_keyboard, parse_mode="HTML")
 
     def __get_wallet(self):
         """Display information about getting a crypto wallet with external links."""
@@ -536,6 +544,59 @@ class Worker(threading.Thread):
         ])
         self.bot.send_message(self.chat.id, self.loc.get("get_wallet_text"),
                               reply_markup=inline_keyboard)
+
+    def __shipping_details_menu(self):
+        """Collect or update the user's shipping details (name, address, city, state, zip, country)."""
+        import json
+        log.debug("Displaying __shipping_details_menu")
+        cancel = telegram.InlineKeyboardMarkup([[
+            telegram.InlineKeyboardButton(self.loc.get("menu_skip"), callback_data="cmd_cancel")
+        ]])
+
+        # Show existing details with option to update
+        if self.user.shipping_details:
+            try:
+                existing = json.loads(self.user.shipping_details)
+            except (ValueError, TypeError):
+                existing = {}
+            summary = (
+                f"📦 <b>Current Shipping Details:</b>\n"
+                f"Name: {existing.get('name', '')}\n"
+                f"Address: {existing.get('address', '')}\n"
+                f"City: {existing.get('city', '')}\n"
+                f"State: {existing.get('state', '')}\n"
+                f"ZIP: {existing.get('zip', '')}\n"
+                f"Country: {existing.get('country', '')}"
+            )
+            update_kb = telegram.InlineKeyboardMarkup([
+                [telegram.InlineKeyboardButton("✏️ Update Details", callback_data="shipping_update")],
+                [telegram.InlineKeyboardButton("🔙 Back", callback_data="cmd_cancel")]
+            ])
+            self.bot.send_message(self.chat.id, summary, reply_markup=update_kb, parse_mode="HTML")
+            cb = self.__wait_for_inlinekeyboard_callback(cancellable=True)
+            if isinstance(cb, CancelSignal) or cb.data != "shipping_update":
+                return
+
+        # Collect each field
+        fields = ["Full Name", "Street Address", "City", "State/Province", "ZIP/Postal Code", "Country"]
+        keys = ["name", "address", "city", "state", "zip", "country"]
+        data = {}
+        for field, key in zip(fields, keys):
+            self.bot.send_message(
+                self.chat.id,
+                f"📦 Enter your <b>{field}</b>:",
+                parse_mode="HTML",
+                reply_markup=cancel
+            )
+            value = self.__wait_for_regex(r"(.+)", cancellable=True)
+            if isinstance(value, CancelSignal):
+                return
+            data[key] = value.strip()
+
+        # Save to user record
+        self.user.shipping_details = json.dumps(data)
+        self.session.commit()
+        self.bot.send_message(self.chat.id, "✅ Shipping details saved!", parse_mode="HTML")
 
     def __order_menu(self):
         """User menu to order products from the shop."""
@@ -684,6 +745,23 @@ class Worker(threading.Thread):
             elif callback.data == "cart_done":
                 # End the loop
                 break
+        # Check for existing pending unverified crypto orders before proceeding
+        pending_crypto_orders = self.session.query(db.Order) \
+            .filter(db.Order.user == self.user,
+                    db.Order.delivery_date.is_(None),
+                    db.Order.refund_date.is_(None),
+                    db.Order.crypto_tx_hash.isnot(None)) \
+            .all()
+        if pending_crypto_orders:
+            self.bot.send_message(
+                self.chat.id,
+                "⚠️ You have a pending crypto payment awaiting verification.\n"
+                "Please wait for an admin to verify your transaction before placing a new order.\n\n"
+                f"Pending TX: <code>{pending_crypto_orders[0].crypto_tx_hash}</code>",
+                parse_mode="HTML"
+            )
+            self.session.rollback()
+            return
         # Create an inline keyboard with a single skip button
         cancel = telegram.InlineKeyboardMarkup([[telegram.InlineKeyboardButton(self.loc.get("menu_skip"),
                                                                                callback_data="cmd_cancel")]])
@@ -691,10 +769,27 @@ class Worker(threading.Thread):
         self.bot.send_message(self.chat.id, self.loc.get("ask_order_notes"), reply_markup=cancel)
         # Wait for user input
         notes = self.__wait_for_regex(r"(.*)", cancellable=True)
+        # Build the final notes string, appending shipping details if available
+        import json as _json
+        notes_text = notes if not isinstance(notes, CancelSignal) else ""
+        shipping_snapshot = None
+        if self.user.shipping_details:
+            try:
+                sd = _json.loads(self.user.shipping_details)
+                shipping_text = (
+                    f"\n\n📦 Shipping: {sd.get('name', '')} | {sd.get('address', '')}, "
+                    f"{sd.get('city', '')}, {sd.get('state', '')} {sd.get('zip', '')} "
+                    f"{sd.get('country', '')}"
+                )
+                notes_text = (notes_text + shipping_text).strip()
+                shipping_snapshot = self.user.shipping_details
+            except (ValueError, TypeError):
+                pass
         # Create a new Order
         order = db.Order(user=self.user,
                          creation_date=datetime.datetime.now(),
-                         notes=notes if not isinstance(notes, CancelSignal) else "")
+                         notes=notes_text,
+                         shipping_address=shipping_snapshot)
         # Add the record to the session and get an ID
         self.session.add(order)
         # For each product added to the cart, create a new OrderItem
@@ -718,11 +813,9 @@ class Worker(threading.Thread):
                 pass
 
             if crypto_enabled:
-                # Show payment method selection with crypto options
+                # Show payment method selection with crypto options FIRST (crypto is primary)
                 cart_value = self.__get_cart_value(cart)
                 payment_buttons = [
-                    [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_wallet"),
-                                                   callback_data="pay_wallet")],
                     [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_btc"),
                                                    callback_data="pay_crypto_BTC")],
                     [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_ltc"),
@@ -733,6 +826,8 @@ class Worker(threading.Thread):
                                                    callback_data="pay_crypto_USDT-TRC20")],
                     [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_zcash"),
                                                    callback_data="pay_crypto_ZCASH")],
+                    [telegram.InlineKeyboardButton(self.loc.get("crypto_pay_wallet"),
+                                                   callback_data="pay_wallet")],
                     [telegram.InlineKeyboardButton(self.loc.get("menu_cancel"),
                                                    callback_data="cmd_cancel")]
                 ]
@@ -841,6 +936,19 @@ class Worker(threading.Thread):
         order.crypto_amount = str(crypto_amount)
         order.crypto_payment_address = deposit_address
         self.session.flush()
+
+        # Show "Buy Crypto" resource panel before the invoice
+        buy_crypto_keyboard = telegram.InlineKeyboardMarkup([
+            [telegram.InlineKeyboardButton("💱 LocalCoinSwap", url="https://localcoinswap.com/")],
+            [telegram.InlineKeyboardButton("🏦 Binance", url="https://www.binance.com/")],
+            [telegram.InlineKeyboardButton("🏧 Find a Bitcoin ATM", url="https://coinatmradar.com/")],
+        ])
+        self.bot.send_message(
+            self.chat.id,
+            self.loc.get("crypto_buy_resources"),
+            reply_markup=buy_crypto_keyboard,
+            parse_mode="HTML"
+        )
 
         # Quote timeout from config
         quote_timeout = swap_cfg.get("quote_timeout", 60)
@@ -1082,6 +1190,19 @@ class Worker(threading.Thread):
         order.crypto_payment_address = deposit_address
         self.session.flush()
 
+        # Show "Buy Crypto" resource panel before the invoice
+        buy_crypto_keyboard = telegram.InlineKeyboardMarkup([
+            [telegram.InlineKeyboardButton("💱 LocalCoinSwap", url="https://localcoinswap.com/")],
+            [telegram.InlineKeyboardButton("🏦 Binance", url="https://www.binance.com/")],
+            [telegram.InlineKeyboardButton("🏧 Find a Bitcoin ATM", url="https://coinatmradar.com/")],
+        ])
+        self.bot.send_message(
+            self.chat.id,
+            self.loc.get("crypto_buy_resources"),
+            reply_markup=buy_crypto_keyboard,
+            parse_mode="HTML"
+        )
+
         # Show the invoice
         invoice_keyboard = telegram.InlineKeyboardMarkup([
             [telegram.InlineKeyboardButton(self.loc.get("checkout_ive_paid"),
@@ -1279,12 +1400,12 @@ class Worker(threading.Thread):
             if value > self.Price(self.cfg["Payments"]["CreditCard"]["max_amount"]):
                 self.bot.send_message(self.chat.id,
                                       self.loc.get("error_payment_amount_over_max",
-                                                   max_amount=self.Price(self.cfg["CreditCard"]["max_amount"])))
+                                                   max_amount=self.Price(self.cfg["Payments"]["CreditCard"]["max_amount"])))
                 continue
             elif value < self.Price(self.cfg["Payments"]["CreditCard"]["min_amount"]):
                 self.bot.send_message(self.chat.id,
                                       self.loc.get("error_payment_amount_under_min",
-                                                   min_amount=self.Price(self.cfg["CreditCard"]["min_amount"])))
+                                                   min_amount=self.Price(self.cfg["Payments"]["CreditCard"]["min_amount"])))
                 continue
             break
         # If the user cancelled the action...
@@ -1389,13 +1510,16 @@ class Worker(threading.Thread):
             self.bot.send_message(self.chat.id, self.loc.get("conversation_open_admin_menu"),
                                   reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
             # Wait for a reply from the user
-            selection = self.__wait_for_specific_message([self.loc.get("menu_products"),
-                                                          self.loc.get("menu_orders"),
-                                                          self.loc.get("menu_user_mode"),
-                                                          self.loc.get("menu_edit_credit"),
-                                                          self.loc.get("menu_transactions"),
-                                                          self.loc.get("menu_csv"),
-                                                          self.loc.get("menu_edit_admins")])
+            wait_options = [self.loc.get("menu_products"),
+                            self.loc.get("menu_orders"),
+                            self.loc.get("menu_user_mode"),
+                            self.loc.get("menu_transactions"),
+                            self.loc.get("menu_csv"),
+                            self.loc.get("menu_edit_admins")]
+            # Only include menu_edit_credit in the wait list when the button is actually displayed
+            if self.admin.create_transactions and self.cfg["Payments"]["Cash"]["enable_create_transaction"]:
+                wait_options.append(self.loc.get("menu_edit_credit"))
+            selection = self.__wait_for_specific_message(wait_options)
             # If the user has selected the Products option and has the privileges to perform the action...
             if selection == self.loc.get("menu_products") and self.admin.edit_products:
                 # Open the products menu
@@ -1609,10 +1733,10 @@ class Worker(threading.Thread):
                                                                                        callback_data="order_complete")],
                                                         [telegram.InlineKeyboardButton(self.loc.get("menu_refund"),
                                                                                        callback_data="order_refund")]])
-        # Display the past pending orders
+        # Display the past pending orders (outer join so crypto orders without a Transaction are included)
         orders = self.session.query(db.Order) \
             .filter_by(delivery_date=None, refund_date=None) \
-            .join(db.Transaction) \
+            .outerjoin(db.Transaction) \
             .join(db.User) \
             .all()
         # Create a message for every one of them
@@ -1632,9 +1756,19 @@ class Worker(threading.Thread):
                 # Stop the listening mode
                 self.admin.live_mode = False
                 break
-            # Find the order
-            order_id = re.search(self.loc.get("order_number").replace("{id}", "([0-9]+)"), update.message.text).group(1)
-            order = self.session.query(db.Order).get(order_id)
+            # Find the order id from the message text (update.message is the order text message)
+            try:
+                order_id_match = re.search(
+                    self.loc.get("order_number").replace("{id}", r"([0-9]+)"),
+                    update.message.text or ""
+                )
+                order_id = int(order_id_match.group(1))
+            except (AttributeError, TypeError, ValueError):
+                # Fallback: skip this callback if we can't parse the order id
+                log.warning("__orders_menu: could not parse order_id from message text")
+                continue
+            # Use session.get() (SQLAlchemy 1.4+ compatible)
+            order = self.session.get(db.Order, order_id)
             # Check if the order hasn't been already cleared
             if order.delivery_date is not None or order.refund_date is not None:
                 # Notify the admin and skip that order
@@ -1669,10 +1803,11 @@ class Worker(threading.Thread):
                 order.refund_date = datetime.datetime.now()
                 # Save the refund reason
                 order.refund_reason = reply
-                # Refund the credit, reverting the old transaction
-                order.transaction.refunded = True
-                # Update the user's credit
-                order.user.recalculate_credit()
+                # Refund the credit only if there is a linked fiat transaction
+                if order.transaction is not None:
+                    order.transaction.refunded = True
+                    # Update the user's credit
+                    order.user.recalculate_credit()
                 # Commit the changes
                 self.session.commit()
                 # Update the order message

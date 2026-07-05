@@ -112,6 +112,8 @@ full_order_info = false
 refill_on_checkout = true
 # Display welcome message (conversation_after_start) when the user sends /start
 display_welcome_message = true
+# Require crypto payment before allowing new orders (set false to allow wallet-only flow)
+require_payment_for_orders = true
 
 
 # Logging settings
