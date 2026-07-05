@@ -6,6 +6,7 @@ WooCommerceXMLImporter — parse WooCommerce product export XML and import to gr
 """
 import logging
 import os
+import re
 import threading
 import time
 from typing import Dict, Optional, Tuple
@@ -254,7 +255,10 @@ class WooCommerceXMLImporter:
                 continue
 
             title       = _text(item, "title")
-            description = _text(item, "{http://purl.org/rss/1.0/modules/content/}encoded")                        or _text(item, "description")
+            description = (
+                _text(item, "{http://purl.org/rss/1.0/modules/content/}encoded")
+                or _text(item, "description")
+            )
             price_str   = ""
             sku         = ""
             stock       = 0

@@ -512,6 +512,41 @@ class Worker(threading.Thread):
                 self.__bot_info()
             elif selection == self.loc.get("menu_help"):
                 self.__help_menu()
+    def __user_menu_shop(self):
+        """Fallback shop menu (no external mode file required)."""
+        log.debug("Displaying __user_menu_shop (fallback)")
+        while True:
+            keyboard = [[telegram.KeyboardButton(self.loc.get("menu_order"))],
+                        [telegram.KeyboardButton(self.loc.get("menu_order_status"))],
+                        [telegram.KeyboardButton("💳 Add Crypto Credit")],
+                        [telegram.KeyboardButton(self.loc.get("menu_language"))],
+                        [telegram.KeyboardButton(self.loc.get("menu_help")),
+                         telegram.KeyboardButton(self.loc.get("menu_bot_info"))]]
+            self.bot.send_message(self.chat.id,
+                                  self.loc.get("conversation_open_user_menu",
+                                               credit=self.Price(self.user.credit)),
+                                  reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+            selection = self.__wait_for_specific_message([
+                self.loc.get("menu_order"),
+                self.loc.get("menu_order_status"),
+                "💳 Add Crypto Credit",
+                self.loc.get("menu_language"),
+                self.loc.get("menu_help"),
+                self.loc.get("menu_bot_info"),
+            ])
+            self.update_user()
+            if selection == self.loc.get("menu_order"):
+                self.__order_menu()
+            elif selection == self.loc.get("menu_order_status"):
+                self.__order_status()
+            elif selection == "💳 Add Crypto Credit":
+                self.__add_credit_crypto()
+            elif selection == self.loc.get("menu_language"):
+                self.__language_menu()
+            elif selection == self.loc.get("menu_bot_info"):
+                self.__bot_info()
+            elif selection == self.loc.get("menu_help"):
+                self.__help_menu()
     def __order_menu(self):
         """User menu to order products from the shop."""
         log.debug("Displaying __order_menu")

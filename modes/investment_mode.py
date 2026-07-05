@@ -215,7 +215,6 @@ def _request_withdrawal(w) -> None:
         f"Please enter your crypto wallet address to receive the withdrawal,\n"
         f"or send /cancel to abort."
     )
-    from worker import CancelSignal
     address = w._wait_for_regex(r"(.+)", cancellable=True)
     if isinstance(address, CancelSignal):
         w.bot.send_message(w.chat.id, "Withdrawal cancelled.")
