@@ -70,7 +70,7 @@ These six steps get the bot running as fast as possible.
 
 **1. Clone the repository** (download the source code to your machine):
 ```bash
-git clone https://github.com/Steffo99/greed.git
+git clone https://github.com/bitbybit91/greed.git
 cd greed
 ```
 
@@ -112,7 +112,7 @@ Open Telegram and send `/start` to your bot. The first user to do so is automati
 "Cloning" downloads the project files from GitHub to your computer.
 
 ```bash
-git clone https://github.com/Steffo99/greed.git
+git clone https://github.com/bitbybit91/greed.git
 cd greed
 ```
 
@@ -295,35 +295,60 @@ Detach by pressing **Ctrl+A** then **Ctrl+D**. Reattach later with `screen -r`.
 
 ### Keep it running with `systemd` (recommended for servers)
 
-Assuming you installed greed in `/srv/greed`:
+For this repository, production services are provided in `deploy/systemd/` and assume your project path is:
+
+`/root/greed-copilot-update-python-script-greed-bot`
+
+Install/update unit files:
 
 ```bash
-sudo useradd greed --system
-sudo chown -R greed: /srv/greed
+sudo bash deploy/systemd/install.sh
 ```
 
-Create `/etc/systemd/system/bot-greed.service`:
-
-```ini
-[Unit]
-Description=Greed Telegram Shop Bot
-Wants=network-online.target
-After=network-online.target nss-lookup.target
-
-[Service]
-Type=exec
-User=greed
-WorkingDirectory=/srv/greed
-ExecStart=/srv/greed/venv/bin/python -OO /srv/greed/core.py
-Environment=PYTHONUNBUFFERED=1
-
-[Install]
-WantedBy=multi-user.target
-```
+Enable/start the main bot service:
 
 ```bash
-sudo systemctl start bot-greed
-sudo systemctl enable bot-greed   # auto-start on reboot
+sudo systemctl enable --now greed-swap.service
+```
+
+> 📝 `StartLimitIntervalSec` must be in the `[Unit]` section, not `[Service]`.
+
+The instance services use per-instance env files:
+
+- `CONFIG_PATH=config/instances/instance_N.toml`
+- `DB_ENGINE=sqlite:///data/instance_N.sqlite`
+- `PYTHONUNBUFFERED=1`
+
+These are read from `config/instances/instance_N.env`, loaded by `EnvironmentFile=` in `greed-swap-instance@.service`.
+
+### Multi-Instance Setup
+
+1. Edit each instance config and add a real Telegram bot token:
+   - `config/instances/instance_1.toml` ... `config/instances/instance_10.toml`
+   - Set `[Telegram].token` in each file.
+
+2. Start one specific instance (example: instance 1):
+
+```bash
+sudo systemctl enable --now greed-swap-instance@1.service
+```
+
+3. Start all instances:
+
+```bash
+for i in $(seq 1 10); do sudo systemctl enable --now greed-swap-instance@${i}.service; done
+```
+
+4. Check status of all instance services:
+
+```bash
+sudo systemctl status 'greed-swap-instance@*.service'
+```
+
+5. Restart a specific instance after changing its config (example: instance 4):
+
+```bash
+sudo systemctl restart greed-swap-instance@4.service
 ```
 
 ### Running with Docker
@@ -421,6 +446,7 @@ greed/
 | `FATAL … A config file has been created. Customize it, then restart greed!` | First run — `config/config.toml` didn't exist yet. | This is **expected**. Edit `config/config.toml` with your token, then run the bot again. |
 | `FATAL … The token you have entered … is invalid.` | The `token` value in your config is still the placeholder or is wrong. | Copy the exact token from [@BotFather](https://t.me/BotFather) into `[Telegram] token`. |
 | `FATAL … There were errors while parsing the config file.` | Your config is missing a key that exists in `template_config.toml`. | Compare your `config.toml` to `template_config.toml` and add any missing sections or keys. |
+| `TomlDecodeError: Only all lowercase booleans allowed` | A config file contains uppercase TOML booleans (`True`/`False`). | Replace all uppercase booleans with lowercase `true`/`false` in `config/*.toml` and `config/instances/*.toml`. |
 | `ModuleNotFoundError: No module named 'telegram'` | Dependencies aren't installed, or the venv isn't active. | Run `pip install -r requirements.txt` with the venv active (`source venv/bin/activate`). |
 | `pip: command not found` | pip is not in your PATH. | Try `python3 -m pip install -r requirements.txt` instead. |
 | Bot does not respond in Telegram | Bot started but token is wrong, or there are network issues. | Check the console for `FATAL` messages; confirm your token is correct; ensure the server has internet access. |
