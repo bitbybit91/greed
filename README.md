@@ -319,6 +319,8 @@ The instance services use per-instance env files:
 - `DB_ENGINE=sqlite:///data/instance_N.sqlite`
 - `PYTHONUNBUFFERED=1`
 
+These are read from `config/instances/instance_N.env`, loaded by `EnvironmentFile=` in `greed-swap-instance@.service`.
+
 ### Multi-Instance Setup
 
 1. Edit each instance config and add a real Telegram bot token:

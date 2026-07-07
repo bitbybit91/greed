@@ -5,6 +5,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SYSTEMD_DIR="/etc/systemd/system"
 
+if [[ "${EUID}" -ne 0 ]]; then
+  echo "Please run as root (for example: sudo bash deploy/systemd/install.sh)"
+  exit 1
+fi
+
 echo "Installing greed systemd service files..."
 
 cp "${SCRIPT_DIR}/greed-swap.service" "${SYSTEMD_DIR}/greed-swap.service"
