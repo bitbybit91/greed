@@ -1,5 +1,5 @@
 # /etc/systemd/system/greed-bots.target
-# Groups all 7 bot instances — start/stop all with:
+# Groups all 7 bot instance(s) — start/stop all with:
 #   sudo systemctl start greed-bots.target
 #   sudo systemctl stop  greed-bots.target
 #

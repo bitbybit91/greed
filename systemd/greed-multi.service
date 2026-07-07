@@ -1,5 +1,5 @@
 # /etc/systemd/system/greed-multi.service
-# Runs the all-in-one greed supervisor (all 7 bots in one process).
+# Runs the all-in-one greed supervisor (all bots in one process).
 #
 # Install:
 #   sudo cp /etc/systemd/system/greed-multi.service /etc/systemd/system/

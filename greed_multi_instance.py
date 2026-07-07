@@ -2,8 +2,8 @@
 """
 greed_multi_instance.py
 =======================
-Deploys and supervises SEVEN independent instances of the greed Telegram shop bot
-(https://github.com/bitbybit91/greed/) on a single Ubuntu 20.04 VPS.
+Deploys and supervises up to 20 independent instances of the greed Telegram
+shop bot (https://github.com/bitbybit91/greed/) on a single Ubuntu 20.04 VPS.
 
 =======================================================================
 QUICK-START (run from the root of the greed repository)
@@ -14,10 +14,13 @@ QUICK-START (run from the root of the greed repository)
 
 2. FILL IN YOUR BOT TOKENS
    Open  config/config.toml  and replace every placeholder value under [instances.*]
-   with the real token you got from @BotFather for each of the 7 bots.
+   with the real token you got from @BotFather for each bot.
 
-3. RUN THE SUPERVISOR (foreground, all 7 bots)
+3. RUN THE SUPERVISOR (foreground, default 7 bots)
    python3 greed_multi_instance.py
+
+   Run with a different number of bots (1–20):
+   python3 greed_multi_instance.py --instances 10
 
 4. RUN AS A SYSTEMD SERVICE (background, survive reboots) — optional
    sudo python3 greed_multi_instance.py --install-systemd   # writes & enables units
@@ -45,7 +48,7 @@ ARCHITECTURE
     with CONFIG_PATH and DB_ENGINE set as environment variables so that
     the greed codebase (nuconfig.py / core.py) picks up the right config
     without any source-level changes.
-  • The supervisor loop monitors all 7 processes, auto-restarts crashed
+  • The supervisor loop monitors all processes, auto-restarts crashed
     instances with exponential back-off (max 5 min), runs a Telegram
     getMe heartbeat every 30 s, prints a live status table, and handles
     SIGINT/SIGTERM for clean shutdown.
@@ -56,7 +59,7 @@ SYSTEMD FILES GENERATED
   /etc/systemd/system/greed-multi.service
       Runs this script (the all-in-one supervisor) under systemd.
 
-  Alternatively, per-instance units (greed-bot@1 … greed-bot@7) plus
+  Alternatively, per-instance units (greed-bot@1 … greed-bot@N) plus
   a greed-bots.target are written to /etc/systemd/system/ and enable
   you to manage each bot independently:
       sudo systemctl start  greed-bot@1
@@ -103,7 +106,8 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # CONSTANTS
 # ---------------------------------------------------------------------------
-NUM_INSTANCES = 7
+MAX_INSTANCES: int = 20          # hard upper limit
+DEFAULT_NUM_INSTANCES: int = 7   # used when neither CLI nor config specifies a count
 BASE_DIR: pathlib.Path = pathlib.Path(__file__).parent.resolve()
 VENV_DIR: pathlib.Path = BASE_DIR / "venv"
 CONFIG_DIR: pathlib.Path = BASE_DIR / "config"
@@ -278,16 +282,19 @@ def diagnose_python_files(python_exe: pathlib.Path) -> None:
 # Default placeholder tokens — user must replace these with real values.
 _TOKEN_PLACEHOLDER = "PASTE_YOUR_BOT_TOKEN_HERE_{n}"
 
-_INSTANCES_TEMPLATE: Dict = {
-    f"instance_{n}": {
-        # ── REQUIRED: replace this with the token from @BotFather ──
-        "name": f"greed_bot_{n}",
-        "bot_token": _TOKEN_PLACEHOLDER.format(n=n),
-        # Unique SQLite file for this instance — do NOT share across instances.
-        "database_url": f"sqlite:///{DATA_DIR}/instance_{n}.sqlite",
+
+def _build_instances_template(num_instances: int) -> Dict:
+    """Return a dict of ``instance_N`` keys for *num_instances* bots."""
+    return {
+        f"instance_{n}": {
+            # ── REQUIRED: replace this with the token from @BotFather ──
+            "name": f"greed_bot_{n}",
+            "bot_token": _TOKEN_PLACEHOLDER.format(n=n),
+            # Unique SQLite file for this instance — do NOT share across instances.
+            "database_url": f"sqlite:///{DATA_DIR}/instance_{n}.sqlite",
+        }
+        for n in range(1, num_instances + 1)
     }
-    for n in range(1, NUM_INSTANCES + 1)
-}
 
 
 def load_or_create_master_config() -> dict:
@@ -359,7 +366,7 @@ def _write_minimal_config(path: pathlib.Path) -> None:
         toml.dump(minimal, fh)
 
 
-def merge_instances_into_config(cfg: dict) -> dict:
+def merge_instances_into_config(cfg: dict, num_instances: int) -> dict:
     """Additively merge the [instances] section into *cfg*.
 
     • Backs up the original config.toml before writing.
@@ -373,8 +380,9 @@ def merge_instances_into_config(cfg: dict) -> dict:
     updated = copy.deepcopy(cfg)
     existing_instances = updated.get("instances", {})
 
+    instances_template = _build_instances_template(num_instances)
     merged_instances: Dict = {}
-    for key, template_val in _INSTANCES_TEMPLATE.items():
+    for key, template_val in instances_template.items():
         if key in existing_instances:
             # Preserve whatever the user already set; fill only absent sub-keys.
             merged = copy.deepcopy(template_val)
@@ -387,16 +395,17 @@ def merge_instances_into_config(cfg: dict) -> dict:
 
     with open(MASTER_CONFIG, "w", encoding="utf-8") as fh:
         # Write a helpful header comment followed by the TOML
-        fh.write(_instances_config_header())
+        fh.write(_instances_config_header(num_instances))
         toml.dump(updated, fh)
 
-    log.info("config.toml updated with [instances] section. "
-             "Replace every 'PASTE_YOUR_BOT_TOKEN_HERE_N' with real tokens.")
+    log.info("config.toml updated with [instances] section (%d instance(s)). "
+             "Replace every 'PASTE_YOUR_BOT_TOKEN_HERE_N' with real tokens.",
+             num_instances)
     return updated
 
 
-def _instances_config_header() -> str:
-    return textwrap.dedent("""\
+def _instances_config_header(num_instances: int) -> str:
+    return textwrap.dedent(f"""\
         # =========================================================================
         # greed master config — managed by greed_multi_instance.py
         # =========================================================================
@@ -407,9 +416,9 @@ def _instances_config_header() -> str:
         #    got from @BotFather for that bot.  The token looks like:
         #        1234567890:ABCDefghIJKlmnopQRSTuvwxyz-0123456789
         # 2. All other settings (language, payments, appearance, logging) are
-        #    SHARED across all 7 instances — change them once here and all bots
+        #    SHARED across all {num_instances} instance(s) — change them once here and all bots
         #    pick them up.
-        # 3. Run:  python3 greed_multi_instance.py
+        # 3. Run:  python3 greed_multi_instance.py --instances {num_instances}
         #
         # DO NOT edit config/instances/instance_N.toml files by hand — they are
         # auto-generated and overwritten on each run.
@@ -422,18 +431,20 @@ def _instances_config_header() -> str:
 # PART 3 — PER-INSTANCE CONFIG GENERATION
 # ===========================================================================
 
-def generate_instance_configs(master_cfg: dict) -> List[pathlib.Path]:
+def generate_instance_configs(master_cfg: dict,
+                              num_instances: int) -> List[pathlib.Path]:
     """Generate one resolved TOML per instance at config/instances/instance_N.toml.
 
     Each file = shared master settings overridden by the instance's unique token
     and database_url.  Returns a list of the generated config paths.
     """
     instances = master_cfg.get("instances", {})
+    instances_template = _build_instances_template(num_instances)
     generated: List[pathlib.Path] = []
 
-    for n in range(1, NUM_INSTANCES + 1):
+    for n in range(1, num_instances + 1):
         key = f"instance_{n}"
-        inst = instances.get(key, _INSTANCES_TEMPLATE[key])
+        inst = instances.get(key, instances_template[key])
 
         # Build the resolved config: start with a deep copy of master,
         # then apply per-instance overrides.
@@ -466,13 +477,14 @@ def generate_instance_configs(master_cfg: dict) -> List[pathlib.Path]:
     return generated
 
 
-def ensure_data_dirs(master_cfg: dict) -> None:
+def ensure_data_dirs(master_cfg: dict, num_instances: int) -> None:
     """Create per-instance data directories and empty DB placeholder paths."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     instances = master_cfg.get("instances", {})
-    for n in range(1, NUM_INSTANCES + 1):
+    instances_template = _build_instances_template(num_instances)
+    for n in range(1, num_instances + 1):
         key = f"instance_{n}"
-        inst = instances.get(key, _INSTANCES_TEMPLATE[key])
+        inst = instances.get(key, instances_template[key])
         db_url: str = inst.get("database_url",
                                f"sqlite:///{DATA_DIR}/instance_{n}.sqlite")
         # Extract the file path from the sqlite URL
@@ -488,8 +500,8 @@ def ensure_data_dirs(master_cfg: dict) -> None:
 # PART 4 — TOKEN VALIDATION
 # ===========================================================================
 
-def validate_tokens(master_cfg: dict) -> List[str]:
-    """Return the list of 7 bot tokens after ensuring they are unique and non-empty.
+def validate_tokens(master_cfg: dict, num_instances: int) -> List[str]:
+    """Return the list of bot tokens after ensuring they are unique and non-empty.
 
     Raises SystemExit with a clear error if any token is invalid or duplicated.
     """
@@ -497,7 +509,7 @@ def validate_tokens(master_cfg: dict) -> List[str]:
     tokens: List[str] = []
     errors: List[str] = []
 
-    for n in range(1, NUM_INSTANCES + 1):
+    for n in range(1, num_instances + 1):
         key = f"instance_{n}"
         inst = instances.get(key, {})
         token: str = inst.get("bot_token", "").strip()
@@ -535,7 +547,7 @@ def validate_tokens(master_cfg: dict) -> List[str]:
         )
         sys.exit(1)
 
-    log.info("All %d tokens validated ✓", NUM_INSTANCES)
+    log.info("All %d tokens validated ✓", num_instances)
     return tokens
 
 
@@ -680,7 +692,7 @@ class InstanceState:
 
 
 class Supervisor:
-    """Orchestrates all NUM_INSTANCES bot processes."""
+    """Orchestrates all bot processes."""
 
     def __init__(self, instances: List[InstanceState]) -> None:
         self.instances = instances
@@ -696,7 +708,7 @@ class Supervisor:
 
     def run(self) -> None:
         """Start all instances and enter the supervision loop."""
-        log.info("Starting all %d instances …", NUM_INSTANCES)
+        log.info("Starting all %d instances …", len(self.instances))
         for inst in self.instances:
             inst.start()
 
@@ -771,7 +783,7 @@ SYSTEMD_DIR = pathlib.Path("/etc/systemd/system")
 
 _SUPERVISOR_SERVICE_TEMPLATE = """\
 # /etc/systemd/system/greed-multi.service
-# Runs the all-in-one greed supervisor (all 7 bots in one process).
+# Runs the all-in-one greed supervisor (all bots in one process).
 #
 # Install:
 #   sudo cp /etc/systemd/system/greed-multi.service /etc/systemd/system/
@@ -779,7 +791,7 @@ _SUPERVISOR_SERVICE_TEMPLATE = """\
 #   sudo systemctl enable --now greed-multi.service
 #
 [Unit]
-Description=Greed Multi-Instance Bot Supervisor (7 bots)
+Description=Greed Multi-Instance Bot Supervisor ({num} bots)
 Wants=network-online.target
 After=network-online.target nss-lookup.target
 
@@ -801,7 +813,7 @@ WantedBy=multi-user.target
 
 _INSTANCE_SERVICE_TEMPLATE = """\
 # /etc/systemd/system/greed-bot@.service
-# Template unit — use with:  systemctl start greed-bot@1 ... greed-bot@7
+# Template unit — use with:  systemctl start greed-bot@1 ... greed-bot@{num}
 #
 [Unit]
 Description=Greed Bot Instance %i
@@ -827,7 +839,7 @@ WantedBy=greed-bots.target
 
 _BOTS_TARGET_TEMPLATE = """\
 # /etc/systemd/system/greed-bots.target
-# Groups all 7 bot instances — start/stop all with:
+# Groups all {num} bot instance(s) — start/stop all with:
 #   sudo systemctl start greed-bots.target
 #   sudo systemctl stop  greed-bots.target
 #
@@ -840,12 +852,13 @@ WantedBy=multi-user.target
 """
 
 
-def _write_instance_env_files(master_cfg: dict) -> None:
+def _write_instance_env_files(master_cfg: dict, num_instances: int) -> None:
     """Write EnvironmentFile entries for per-instance systemd units."""
     instances = master_cfg.get("instances", {})
-    for n in range(1, NUM_INSTANCES + 1):
+    instances_template = _build_instances_template(num_instances)
+    for n in range(1, num_instances + 1):
         key = f"instance_{n}"
-        inst = instances.get(key, _INSTANCES_TEMPLATE[key])
+        inst = instances.get(key, instances_template[key])
         env_path = INSTANCE_CFG_DIR / f"instance_{n}.env"
         db_url = inst.get("database_url",
                           f"sqlite:///{DATA_DIR}/instance_{n}.sqlite")
@@ -858,13 +871,14 @@ def _write_instance_env_files(master_cfg: dict) -> None:
 
 
 def generate_systemd_units(master_cfg: dict, python_exe: pathlib.Path,
+                           num_instances: int,
                            target_dir: pathlib.Path = SYSTEMD_DIR) -> None:
     """Write all systemd unit files to *target_dir* (default /etc/systemd/system).
 
     Also writes .env sidecar files for the per-instance template unit.
     Prints installation commands to stdout.
     """
-    _write_instance_env_files(master_cfg)
+    _write_instance_env_files(master_cfg, num_instances)
 
     current_user = os.environ.get("SUDO_USER") or os.environ.get("USER", "root")
     workdir = str(BASE_DIR)
@@ -876,6 +890,7 @@ def generate_systemd_units(master_cfg: dict, python_exe: pathlib.Path,
 
     # ── Option A: all-in-one supervisor service ──────────────────────────
     supervisor_service = _SUPERVISOR_SERVICE_TEMPLATE.format(
+        num=num_instances,
         user=current_user,
         workdir=workdir,
         python=python_str,
@@ -884,6 +899,7 @@ def generate_systemd_units(master_cfg: dict, python_exe: pathlib.Path,
 
     # ── Option B: per-instance template unit + target ────────────────────
     instance_service = _INSTANCE_SERVICE_TEMPLATE.format(
+        num=num_instances,
         user=current_user,
         workdir=workdir,
         python=python_str,
@@ -892,8 +908,8 @@ def generate_systemd_units(master_cfg: dict, python_exe: pathlib.Path,
         cfgdir=cfgdir_str,
     )
     wants_str = " ".join(f"greed-bot@{i}.service"
-                         for i in range(1, NUM_INSTANCES + 1))
-    bots_target = _BOTS_TARGET_TEMPLATE.format(wants=wants_str)
+                         for i in range(1, num_instances + 1))
+    bots_target = _BOTS_TARGET_TEMPLATE.format(num=num_instances, wants=wants_str)
 
     # Try to write to /etc/systemd/system; fall back to BASE_DIR/systemd/
     write_dir: pathlib.Path
@@ -922,11 +938,12 @@ def generate_systemd_units(master_cfg: dict, python_exe: pathlib.Path,
     _write("greed-bot@.service", instance_service)
     _write("greed-bots.target", bots_target)
 
-    _print_systemd_instructions(write_dir, target_dir)
+    _print_systemd_instructions(write_dir, target_dir, num_instances)
 
 
 def _print_systemd_instructions(write_dir: pathlib.Path,
-                                target_dir: pathlib.Path) -> None:
+                                target_dir: pathlib.Path,
+                                num_instances: int) -> None:
     """Print exact shell commands for installing and starting the units."""
     copy_needed = write_dir != target_dir
     copy_cmd = (
@@ -951,8 +968,8 @@ def _print_systemd_instructions(write_dir: pathlib.Path,
     # {('Copy unit files first:\n    ' + copy_cmd) if copy_needed else 'Files already in place.'}
     sudo systemctl daemon-reload
 
-    # Enable and start all 7 bots via the target:
-    sudo systemctl enable --now greed-bot@{{1..7}}
+    # Enable and start all {num_instances} bot(s) via the target:
+    sudo systemctl enable --now greed-bot@{{1..{num_instances}}}
     sudo systemctl start greed-bots.target
 
     # Or manage individually:
@@ -982,14 +999,16 @@ def _print_systemd_instructions(write_dir: pathlib.Path,
 
 def build_supervisor(master_cfg: dict,
                      instance_cfg_paths: List[pathlib.Path],
-                     python_exe: pathlib.Path) -> Supervisor:
+                     python_exe: pathlib.Path,
+                     num_instances: int) -> Supervisor:
     """Construct InstanceState objects and return the Supervisor."""
     instances_cfg = master_cfg.get("instances", {})
+    instances_template = _build_instances_template(num_instances)
     states: List[InstanceState] = []
 
-    for n in range(1, NUM_INSTANCES + 1):
+    for n in range(1, num_instances + 1):
         key = f"instance_{n}"
-        inst = instances_cfg.get(key, _INSTANCES_TEMPLATE[key])
+        inst = instances_cfg.get(key, instances_template[key])
         token = inst.get("bot_token", "")
         db_url = inst.get("database_url",
                           f"sqlite:///{DATA_DIR}/instance_{n}.sqlite")
@@ -1015,6 +1034,15 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="greed multi-instance supervisor",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--instances",
+        type=int,
+        default=None,
+        metavar="N",
+        help=f"Number of bot instances to run (1–{MAX_INSTANCES}). "
+             f"Defaults to the value of 'num_instances' in config.toml, "
+             f"or {DEFAULT_NUM_INSTANCES} if not set there.",
     )
     parser.add_argument(
         "--install-systemd",
@@ -1053,25 +1081,49 @@ def main() -> None:
 
     # ── Part 2: master config ─────────────────────────────────────────────
     master_cfg = load_or_create_master_config()
-    master_cfg = merge_instances_into_config(master_cfg)
+
+    # Resolve num_instances: CLI arg > config value > default
+    if args.instances is not None:
+        num_instances = args.instances
+        if not (1 <= num_instances <= MAX_INSTANCES):
+            log.error(
+                "--instances must be between 1 and %d (got %d).",
+                MAX_INSTANCES, num_instances,
+            )
+            sys.exit(1)
+    else:
+        num_instances = int(master_cfg.get("num_instances", DEFAULT_NUM_INSTANCES))
+        if not (1 <= num_instances <= MAX_INSTANCES):
+            log.warning(
+                "config.toml 'num_instances' value %d is out of range (1–%d); "
+                "falling back to default %d.",
+                num_instances, MAX_INSTANCES, DEFAULT_NUM_INSTANCES,
+            )
+            num_instances = DEFAULT_NUM_INSTANCES
+
+    log.info("Running with %d bot instance(s) (max allowed: %d).",
+             num_instances, MAX_INSTANCES)
+
+    master_cfg = merge_instances_into_config(master_cfg, num_instances)
 
     # ── Part 3: per-instance configs + data dirs ──────────────────────────
-    ensure_data_dirs(master_cfg)
-    instance_cfg_paths = generate_instance_configs(master_cfg)
+    ensure_data_dirs(master_cfg, num_instances)
+    instance_cfg_paths = generate_instance_configs(master_cfg, num_instances)
 
     # ── Systemd generation (optional early exit) ──────────────────────────
     if args.install_systemd:
-        generate_systemd_units(master_cfg, python_exe)
+        generate_systemd_units(master_cfg, python_exe, num_instances)
         log.info("Systemd units generated. Exiting without starting bots.")
         return
 
     # ── Part 4 + 5: validate tokens → start supervisor ───────────────────
     if not args.no_validate_tokens:
-        validate_tokens(master_cfg)
+        validate_tokens(master_cfg, num_instances)
 
-    generate_systemd_units(master_cfg, python_exe)   # always generate for reference
+    generate_systemd_units(master_cfg, python_exe, num_instances)   # always generate for reference
 
-    supervisor = build_supervisor(master_cfg, instance_cfg_paths, python_exe)
+    supervisor = build_supervisor(master_cfg, instance_cfg_paths, python_exe,
+                                  num_instances)
 
     log.info("Launching supervisor — press Ctrl+C to stop all bots cleanly.")
     supervisor.run()
