@@ -664,7 +664,7 @@ class Worker(threading.Thread):
             # Suggest crypto top-up for missing credit if refill on checkout is enabled
             if self.cfg["Appearance"].get("refill_on_checkout", False):
                 self.__add_credit_crypto()
-        # If afer requested payment credit is still insufficient (either payment failure or cancel)
+        # If after requested payment credit is still insufficient (either payment failure or cancel)
         if self.user.credit < self.__get_cart_value(cart):
             # Rollback all the changes
             self.session.rollback()
