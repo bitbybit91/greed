@@ -1,0 +1,26 @@
+[Unit]
+Description=Greed Telegram Shop Bot
+Documentation=https://github.com/bitbybit91/greed
+Wants=network-online.target
+After=network-online.target nss-lookup.target
+StartLimitIntervalSec=60
+
+[Service]
+Type=exec
+User=root
+Group=root
+WorkingDirectory=/root/greed-copilot-update-python-script-greed-bot
+ExecStart=/root/greed-copilot-update-python-script-greed-bot/venv/bin/python -OO /root/greed-copilot-update-python-script-greed-bot/core.py
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Restart=on-failure
+RestartSec=5s
+StartLimitBurst=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=greed-bot
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+
+[Install]
+WantedBy=multi-user.target

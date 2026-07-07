@@ -8,7 +8,7 @@ default_language = "it"
 fallback_language = "en"
 
 [Database]
-engine = "sqlite:////home/runner/work/greed/greed/data/instance_6.sqlite"
+engine = "sqlite:///data/instance_6.sqlite"
 
 [Telegram]
 token = "PASTE_YOUR_BOT_TOKEN_HERE_6"
