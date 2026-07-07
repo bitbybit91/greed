@@ -1,0 +1,27 @@
+# /etc/systemd/system/greed-secondary.service
+# Secondary greed bot instance running from /root/greed-copilot-update-python-script-greed-bot/
+#
+# Install:
+#   sudo cp systemd/greed-secondary.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now greed-secondary.service
+#
+[Unit]
+Description=Greed Secondary Bot
+Wants=network-online.target
+After=network-online.target nss-lookup.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/greed-copilot-update-python-script-greed-bot
+ExecStart=/usr/bin/python3 -OO /root/greed-copilot-update-python-script-greed-bot/core.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=greed-secondary
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

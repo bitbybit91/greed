@@ -1,0 +1,13 @@
+# config/crypto_addresses.toml
+# Owner deposit addresses for cryptocurrency payments.
+# Key = coin symbol (uppercase), Value = your wallet address.
+# Leave value empty ("") to disable that coin.
+
+[addresses]
+BTC  = ""   # Bitcoin
+ETH  = ""   # Ethereum
+XMR  = ""   # Monero
+USDT = ""   # Tether (ERC-20 or TRC-20 — specify chain in notes)
+USDC = ""   # USD Coin
+LTC  = ""   # Litecoin
+DOGE = ""   # Dogecoin

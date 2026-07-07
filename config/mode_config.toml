@@ -1,0 +1,11 @@
+# config/mode_config.toml
+# Active bot mode. Owner can switch via the Telegram admin panel.
+# Valid values: SHOP_BOT | INVESTMENT_BOT | SWAP_BOT
+
+active_mode = "SHOP_BOT"
+
+# Spread percentage charged on swaps (SWAP_BOT mode only)
+swap_spread_pct = 1.5
+
+# Enable auto address-polling for BTC/XMR confirmation (experimental)
+enable_address_polling = false
