@@ -8,12 +8,57 @@ to exact crypto amounts.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import requests
-import toml
+
+log = logging.getLogger(__name__)
+
+# Try to import toml; fall back to a minimal manual parser
+try:
+    import toml as _toml
+    def _load_toml(path: str) -> dict:
+        return _toml.load(path)
+except ImportError:
+    _toml = None  # type: ignore
+    def _load_toml(path: str) -> dict:  # type: ignore[misc]
+        """Minimal TOML parser: handles [section], key = "value", key = number."""
+        result: dict = {}
+        current: dict = result
+        with open(path, encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("[") and line.endswith("]"):
+                    section = line[1:-1].strip()
+                    parts = section.split(".")
+                    node = result
+                    for part in parts:
+                        node = node.setdefault(part, {})
+                    current = node
+                    continue
+                if "=" in line:
+                    key, _, val = line.partition("=")
+                    key = key.strip()
+                    val = val.strip()
+                    if val.startswith('"') or val.startswith("'"):
+                        val = val[1:-1]
+                    elif val.lower() in ("true", "false"):
+                        val = val.lower() == "true"
+                    else:
+                        try:
+                            val = int(val)
+                        except ValueError:
+                            try:
+                                val = float(val)
+                            except ValueError:
+                                pass
+                    current[key] = val
+        return result
 
 log = logging.getLogger(__name__)
 
@@ -55,7 +100,7 @@ class CryptoPaymentManager:
             log.warning(f"Crypto addresses config not found: {self.config_path}")
             return
         try:
-            cfg = toml.load(str(self.config_path))
+            cfg = _load_toml(str(self.config_path))
             self.addresses = {k.upper(): v for k, v in cfg.get("addresses", {}).items()}
             log.info(f"Loaded {len(self.addresses)} crypto addresses: "
                      f"{list(self.addresses.keys())}")
@@ -160,6 +205,37 @@ class CryptoPaymentManager:
             "fiat_symbol": currency_symbol,
             "qr_string": qr,
             "display": display,
+        }
+
+    # ── Swap Quote ───────────────────────────────────────────────────────
+    def get_swap_quote(
+        self,
+        coin_in: str,
+        coin_out: str,
+        amount_in: float,
+        fiat: str = "eur",
+        spread_pct: float = 1.5,
+    ) -> Optional[dict]:
+        """
+        Calculate a swap quote: coin_in → coin_out.
+        Returns dict with amount_in, coin_in, amount_out, coin_out, spread_pct,
+        fiat_value, rate_in, rate_out; or None if rates unavailable.
+        """
+        rate_in = self.get_live_rate(coin_in.upper(), fiat)
+        rate_out = self.get_live_rate(coin_out.upper(), fiat)
+        if not rate_in or not rate_out:
+            return None
+        fiat_val = amount_in * rate_in
+        amount_out = round(fiat_val / rate_out * (1 - spread_pct / 100), 8)
+        return {
+            "coin_in": coin_in.upper(),
+            "coin_out": coin_out.upper(),
+            "amount_in": amount_in,
+            "amount_out": amount_out,
+            "rate_in": rate_in,
+            "rate_out": rate_out,
+            "fiat_value": fiat_val,
+            "spread_pct": spread_pct,
         }
 
     # ── Confirmation Polling Stub ────────────────────────────────────────

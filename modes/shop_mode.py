@@ -23,9 +23,17 @@ def run_crypto_checkout(w: "_w.Worker", order_total_cents: int) -> dict | None:
     Returns a dict with payment details on success, None on cancel.
     """
     import telegram
+    import database as db
     from crypto_manager import CryptoPaymentManager
+    from worker import CancelSignal
 
     mgr: CryptoPaymentManager = w._crypto_manager()
+    if mgr is None:
+        w.bot.send_message(
+            w.chat.id,
+            "\u26a0\ufe0f Crypto payments are not available.",
+        )
+        return None
     coins = mgr.get_available_coins()
     if not coins:
         w.bot.send_message(
@@ -45,7 +53,7 @@ def run_crypto_checkout(w: "_w.Worker", order_total_cents: int) -> dict | None:
         reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True),
     )
     selection = w._Worker__wait_for_specific_message(coins, cancellable=True)
-    if hasattr(selection, "__class__") and selection.__class__.__name__ == "CancelSignal":
+    if isinstance(selection, CancelSignal):
         return None
 
     coin = selection.upper()
@@ -79,10 +87,27 @@ def run_crypto_checkout(w: "_w.Worker", order_total_cents: int) -> dict | None:
     # Wait for user to provide tx reference
     w.bot.send_message(w.chat.id, "Please send your transaction ID / hash:")
     tx_ref_msg = w._Worker__wait_for_regex(r"(.+)", cancellable=True)
-    if hasattr(tx_ref_msg, "__class__") and tx_ref_msg.__class__.__name__ == "CancelSignal":
+    if isinstance(tx_ref_msg, CancelSignal):
         tx_ref = "not provided"
     else:
         tx_ref = str(tx_ref_msg).strip()
+
+    # Store CryptoDeposit record
+    try:
+        dep = db.CryptoDeposit(
+            user_id=w.user.user_id,
+            coin=info["coin"],
+            amount=str(info["amount"]),
+            fiat_amount=str(info["fiat_amount"]),
+            address=info["address"],
+            confirmed=False,
+            created_at=__import__("datetime").datetime.now(),
+        )
+        w.session.add(dep)
+        w.session.commit()
+    except Exception as exc:
+        log.warning(f"Could not save CryptoDeposit: {exc}")
+        w.session.rollback()
 
     return {
         "coin": info["coin"],
@@ -102,6 +127,8 @@ def collect_shipping_details(w: "_w.Worker") -> dict | None:
     Returns dict with name/address/phone/notes, or None on cancel.
     """
     import telegram
+    import database as db
+    from worker import CancelSignal
 
     cancel_kb = telegram.InlineKeyboardMarkup(
         [[telegram.InlineKeyboardButton(w.loc.get("menu_cancel"), callback_data="cmd_cancel")]]
@@ -117,20 +144,20 @@ def collect_shipping_details(w: "_w.Worker") -> dict | None:
     # Full name
     w.bot.send_message(w.chat.id, "\U0001f464 Full name:", reply_markup=cancel_kb)
     name = w._Worker__wait_for_regex(r"(.+)", cancellable=True)
-    if hasattr(name, "__class__") and name.__class__.__name__ == "CancelSignal":
+    if isinstance(name, CancelSignal):
         return None
 
     # Delivery address
     w.bot.send_message(w.chat.id, "\U0001f3e0 Delivery address (street, city, country):",
                        reply_markup=cancel_kb)
     address = w._Worker__wait_for_regex(r"(.+)", cancellable=True)
-    if hasattr(address, "__class__") and address.__class__.__name__ == "CancelSignal":
+    if isinstance(address, CancelSignal):
         return None
 
     # Phone
     w.bot.send_message(w.chat.id, "\U0001f4f1 Phone number:", reply_markup=cancel_kb)
     phone = w._Worker__wait_for_regex(r"(\+?[0-9\s\-]{7,})", cancellable=True)
-    if hasattr(phone, "__class__") and phone.__class__.__name__ == "CancelSignal":
+    if isinstance(phone, CancelSignal):
         return None
 
     # Notes
@@ -140,15 +167,16 @@ def collect_shipping_details(w: "_w.Worker") -> dict | None:
     w.bot.send_message(w.chat.id, "\U0001f4dd Additional notes (or press Skip):",
                        reply_markup=skip_kb)
     notes_raw = w._Worker__wait_for_regex(r"(.+)", cancellable=True)
-    notes = "" if (hasattr(notes_raw, "__class__") and
-                   notes_raw.__class__.__name__ == "CancelSignal") else str(notes_raw).strip()
+    notes = "" if isinstance(notes_raw, CancelSignal) else str(notes_raw).strip()
 
-    return {
+    result = {
         "name": str(name).strip(),
         "address": str(address).strip(),
         "phone": str(phone).strip(),
         "notes": notes,
     }
+
+    return result
 
 
 # ── Notify Owner After Order ─────────────────────────────────────────────────
@@ -159,7 +187,24 @@ def notify_owner_of_order(
     shipping: dict,
 ) -> None:
     """Send a full order summary to all admins with receive_orders permission."""
+    import datetime
     import database as db
+
+    # Store ShippingDetails in DB
+    try:
+        rec = db.ShippingDetails(
+            order_id=order.order_id,
+            name=shipping.get("name", ""),
+            address=shipping.get("address", ""),
+            phone=shipping.get("phone", ""),
+            notes=shipping.get("notes", ""),
+            created_at=datetime.datetime.now(),
+        )
+        w.session.add(rec)
+        w.session.commit()
+    except Exception as exc:
+        log.warning(f"Could not save ShippingDetails: {exc}")
+        w.session.rollback()
 
     admins = (
         w.session.query(db.Admin)

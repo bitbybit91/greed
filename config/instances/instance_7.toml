@@ -8,7 +8,7 @@ default_language = "it"
 fallback_language = "en"
 
 [Database]
-engine = "sqlite:////home/runner/work/greed/greed/data/instance_7.sqlite"
+engine = "sqlite:///data/instance_7.sqlite"
 
 [Telegram]
 token = "PASTE_YOUR_BOT_TOKEN_HERE_7"
@@ -33,18 +33,18 @@ format = "{asctime} | {threadName} | {name} | {message}"
 level = "INFO"
 
 [Payments.Cash]
-enable_pay_with_cash = true
+enable_pay_with_cash = false
 enable_create_transaction = true
 
 [Payments.CreditCard]
-credit_card_token = "123456789:YOUR_TOKEN_HERE_"
+credit_card_token = ""
 min_amount = 1000
 max_amount = 10000
 payment_presets = [ 10.0, 25.0, 50.0, 100.0,]
 tip_presets = []
 max_tip_amount = 0
-fee_percentage = 2.9
-fee_fixed = 30
-name_required = true
-email_required = true
-phone_required = true
+fee_percentage = 0.0
+fee_fixed = 0
+name_required = false
+email_required = false
+phone_required = false
