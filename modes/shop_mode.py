@@ -94,6 +94,7 @@ def run_crypto_checkout(w: "_w.Worker", order_total_cents: int) -> dict | None:
 
     # Store CryptoDeposit record
     try:
+        import datetime as _dt
         dep = db.CryptoDeposit(
             user_id=w.user.user_id,
             coin=info["coin"],
@@ -101,7 +102,7 @@ def run_crypto_checkout(w: "_w.Worker", order_total_cents: int) -> dict | None:
             fiat_amount=str(info["fiat_amount"]),
             address=info["address"],
             confirmed=False,
-            created_at=__import__("datetime").datetime.now(),
+            created_at=_dt.datetime.now(),
         )
         w.session.add(dep)
         w.session.commit()

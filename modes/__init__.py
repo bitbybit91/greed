@@ -35,7 +35,19 @@ except ImportError:
                 if "=" in line:
                     key, _, val = line.partition("=")
                     key = key.strip()
-                    val = val.strip().strip('"').strip("'")
+                    val = val.strip()
+                    if val.startswith('"') or val.startswith("'"):
+                        val = val[1:-1]
+                    elif val.lower() in ("true", "false"):
+                        val = val.lower() == "true"
+                    else:
+                        try:
+                            val = int(val)
+                        except ValueError:
+                            try:
+                                val = float(val)
+                            except ValueError:
+                                pass
                     current[key] = val
         return result
     def _dump_toml(data: dict, fh) -> None:  # type: ignore[misc]

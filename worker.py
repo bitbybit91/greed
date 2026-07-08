@@ -948,6 +948,8 @@ class Worker(threading.Thread):
             self.bot.send_message(self.chat.id, f"\u274c Import failed: {exc}")
 
     # ────────────────────────────────────────────────────────────────────
+
+    def __admin_menu(self):
         """Function called from the run method when the user is an administrator.
         Administrative bot actions should be placed here."""
         log.debug("Displaying __admin_menu")

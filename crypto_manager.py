@@ -60,8 +60,6 @@ except ImportError:
                     current[key] = val
         return result
 
-log = logging.getLogger(__name__)
-
 # CoinGecko symbol → coin-id mapping (extend as needed)
 COINGECKO_IDS: Dict[str, str] = {
     "BTC":  "bitcoin",
