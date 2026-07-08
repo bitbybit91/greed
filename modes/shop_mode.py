@@ -107,7 +107,7 @@ def run_crypto_checkout(w: "_w.Worker", order_total_cents: int) -> Optional[dict
     if _is_cancel(coin):
         return None
 
-    info = w._crypto_manager().get_payment_info(
+    info = mgr.get_payment_info(
         fiat_cents=int(order_total_cents),
         coin=str(coin),
         currency_exp=w.cfg["Payments"]["currency_exp"],
@@ -160,16 +160,19 @@ def collect_shipping_details(w: "_w.Worker") -> Optional[dict]:
     if _is_cancel(phone):
         return None
 
-    w.bot.send_message(w.chat.id, "Order notes (type N/A if none):", reply_markup=cancel)
+    skip_keyboard = telegram.InlineKeyboardMarkup(
+        [[telegram.InlineKeyboardButton("Skip", callback_data="cmd_cancel")]]
+    )
+    w.bot.send_message(w.chat.id, "Order notes (or press Skip):", reply_markup=skip_keyboard)
     notes = w._Worker__wait_for_regex(r"(.+)", cancellable=True)
     if _is_cancel(notes):
-        return None
+        notes = ""
 
     return {
         "name": str(name).strip(),
         "address": str(address).strip(),
         "phone": str(phone).strip(),
-        "notes": "" if str(notes).strip().upper() == "N/A" else str(notes).strip(),
+        "notes": str(notes).strip(),
     }
 
 

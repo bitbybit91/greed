@@ -33,8 +33,10 @@ def _read_mode_config() -> dict:
     except OSError as exc:
         log.warning("Could not read mode config: %s", exc)
         return {}
-    match = re.search(r'active_mode\s*=\s*["\']([^"\']+)["\']', content)
-    return {"active_mode": match.group(1)} if match else {}
+    config = {}
+    for key, value in re.findall(r'^\s*([A-Za-z0-9_]+)\s*=\s*["\']?([^"\n\']+)["\']?\s*$', content, re.MULTILINE):
+        config[key] = value.strip()
+    return config
 
 
 def get_active_mode() -> str:

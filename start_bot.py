@@ -41,7 +41,9 @@ def is_real_token(token: str) -> bool:
         return False
     upper = token.upper()
     placeholders = ("YOUR_TOKEN", "PASTE_YOUR_BOT_TOKEN", "BOT_TOKEN_HERE")
-    return not any(marker in upper for marker in placeholders)
+    if any(marker in upper for marker in placeholders):
+        return False
+    return re.fullmatch(r"\d{6,}:[A-Za-z0-9_-]{20,}", token) is not None
 
 
 def find_first_instance_config() -> Path:
@@ -59,8 +61,7 @@ def main() -> int:
     config_path = find_first_instance_config()
     env = os.environ.copy()
     env["CONFIG_PATH"] = str(config_path)
-    subprocess.call([str(python_path), "-OO", str(BASE_DIR / "core.py")], cwd=str(BASE_DIR), env=env)
-    return 0
+    return subprocess.call([str(python_path), "-OO", str(BASE_DIR / "core.py")], cwd=str(BASE_DIR), env=env)
 
 
 if __name__ == "__main__":

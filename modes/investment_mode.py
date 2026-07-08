@@ -242,7 +242,7 @@ def _run_withdraw_flow(w: "_w.Worker") -> None:
         w.bot.send_message(w.chat.id, "You do not have any active investments to withdraw from.")
         return
 
-    deposit_options = [f"#{deposit.id} {deposit.plan_name}" for deposit in active_deposits]
+    deposit_options = {f"#{deposit.id} {deposit.plan_name}": deposit for deposit in active_deposits}
     keyboard = [[telegram.KeyboardButton(option)] for option in deposit_options]
     keyboard.append([telegram.KeyboardButton(w.loc.get("menu_cancel"))])
     w.bot.send_message(
@@ -250,11 +250,10 @@ def _run_withdraw_flow(w: "_w.Worker") -> None:
         "Select the investment you want to withdraw.",
         reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True),
     )
-    selection = w._Worker__wait_for_specific_message(deposit_options, cancellable=True)
+    selection = w._Worker__wait_for_specific_message(list(deposit_options.keys()), cancellable=True)
     if _is_cancel(selection):
         return
-    deposit_id = int(str(selection).split()[0].lstrip("#"))
-    deposit = next((item for item in active_deposits if item.id == deposit_id), None)
+    deposit = deposit_options.get(str(selection))
     if deposit is None:
         w.bot.send_message(w.chat.id, "❌ Invalid investment selection.")
         return

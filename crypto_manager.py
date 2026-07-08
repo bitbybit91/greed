@@ -120,7 +120,7 @@ class CryptoPaymentManager:
             payload = response.json() or {}
             rate = float(payload[coin_id][fiat])
             if rate <= 0:
-                raise ValueError("non-positive rate received")
+                raise ValueError(f"non-positive rate received for {coin}/{fiat}: {rate}")
             now = time.time()
             self._cache[key] = (rate, now)
             self._fallback[key] = rate
