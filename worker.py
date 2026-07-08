@@ -830,9 +830,7 @@ class Worker(threading.Thread):
             return
         self.bot.send_message(
             self.chat.id,
-            "📋 <b>Crypto Top-Up</b>
-
-" + info["display"],
+            "📋 <b>Crypto Top-Up</b>\n\n" + info["display"],
             parse_mode="HTML",
             reply_markup=telegram.ReplyKeyboardRemove(),
         )
@@ -862,18 +860,12 @@ class Worker(threading.Thread):
                 self.bot.send_message(
                     admin.user_id,
                     (
-                        "💰 <b>Pending Crypto Top-Up</b>
-"
-                        f"User: {escape(self.user.mention())} ({self.user.user_id})
-"
-                        f"Fiat amount: {self.Price(fiat_cents)}
-"
-                        f"Crypto amount: <code>{info['amount']} {info['coin']}</code>
-"
-                        f"Address: <code>{escape(info['address'])}</code>
-"
-                        f"TX ID: <code>{escape(tx_ref)}</code>
-"
+                        "💰 <b>Pending Crypto Top-Up</b>\n"
+                        f"User: {escape(self.user.mention())} ({self.user.user_id})\n"
+                        f"Fiat amount: {self.Price(fiat_cents)}\n"
+                        f"Crypto amount: <code>{info['amount']} {info['coin']}</code>\n"
+                        f"Address: <code>{escape(info['address'])}</code>\n"
+                        f"TX ID: <code>{escape(tx_ref)}</code>\n"
                         f"Transaction #: {transaction.transaction_id}"
                     ),
                     parse_mode="HTML",
@@ -893,8 +885,7 @@ class Worker(threading.Thread):
         keyboard.append([telegram.KeyboardButton(self.loc.get("menu_cancel"))])
         self.bot.send_message(
             self.chat.id,
-            f"Current mode: <b>{current_mode}</b>
-Choose the new mode.",
+            f"Current mode: <b>{current_mode}</b>\nChoose the new mode.",
             parse_mode="HTML",
             reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True),
         )
