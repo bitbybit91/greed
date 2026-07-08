@@ -33,6 +33,7 @@ def _read_mode_config() -> dict:
     except OSError as exc:
         log.warning("Could not read mode config: %s", exc)
         return {}
+    # Fallback parser intentionally supports only simple single-line TOML scalars.
     config = {}
     pattern = re.compile(
         r'^\s*([A-Za-z0-9_]+)\s*=\s*(?:["\']([^"\']*)["\']|([^\s#]+))',

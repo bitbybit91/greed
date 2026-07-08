@@ -45,7 +45,7 @@ def is_real_token(token: str) -> bool:
     placeholders = ("YOUR_TOKEN", "PASTE_YOUR_BOT_TOKEN", "BOT_TOKEN_HERE")
     if any(marker in upper for marker in placeholders):
         return False
-    return re.fullmatch(r"\d{6,}:[A-Za-z0-9_-]{20,}", token) is not None
+    return re.fullmatch(r"\d{8,10}:[A-Za-z0-9_-]{35}", token) is not None
 
 
 def find_first_instance_config() -> Path:

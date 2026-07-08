@@ -668,7 +668,6 @@ class Worker(threading.Thread):
         try:
             from modes.shop_mode import run_shop_checkout
         except ImportError:
-            self.session.rollback()
             self.bot.send_message(self.chat.id, "Crypto checkout is unavailable right now.")
             return
         if not run_shop_checkout(self, order=order, order_total_cents=int(self.__get_cart_value(cart))):
@@ -775,7 +774,7 @@ class Worker(threading.Thread):
     def _crypto_manager(self):
         """Return the shared crypto payment manager instance, if available."""
         if self._crypto_mgr is None:
-            manager_cls = _CryptoPaymentManager
+            manager_cls = _CryptoPaymentManager if _CryptoPaymentManager is not None else None
             if manager_cls is None:
                 try:
                     from crypto_manager import CryptoPaymentManager as manager_cls
