@@ -1,13 +1,9 @@
-"""
-modes/shop_mode.py
-Shop Mode — Product catalog, cart, crypto checkout, shipping follow-up.
-Functions receive a Worker instance and use its internal helpers.
-"""
 from __future__ import annotations
 
 import datetime
 import logging
-from typing import TYPE_CHECKING
+from html import escape
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     import worker as _w
@@ -15,187 +11,196 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-# ── Crypto Checkout (called after cart is confirmed) ───────────────────────
-def run_crypto_checkout(w: "_w.Worker", order_total_cents: int) -> dict | None:
-    """
-    Present all available crypto coins, let the user pick one, show the
-    payment address + exact amount, and wait for owner confirmation.
-    Returns a dict with payment details on success, None on cancel.
-    """
-    import telegram
-    from crypto_manager import CryptoPaymentManager
+def _is_cancel(value) -> bool:
+    from worker import CancelSignal
 
-    mgr: CryptoPaymentManager = w._crypto_manager()
+    return isinstance(value, CancelSignal)
+
+
+def _notify_admins(w: "_w.Worker", message: str) -> None:
+    import database as db
+
+    admins = w.session.query(db.Admin).filter_by(receive_orders=True).all()
+    for admin in admins:
+        try:
+            w.bot.send_message(admin.user_id, message, parse_mode="HTML")
+        except Exception as exc:
+            log.warning("Could not notify admin %s: %s", admin.user_id, exc)
+
+
+def run_shop_checkout(w: "_w.Worker", order, order_total_cents: int) -> bool:
+    import database as db
+    import telegram
+
+    payment_info = run_crypto_checkout(w, order_total_cents)
+    if payment_info is None:
+        return False
+
+    shipping = collect_shipping_details(w)
+    if shipping is None:
+        return False
+
+    w.session.flush()
+    transaction = db.Transaction(
+        user=w.user,
+        value=0,
+        order=order,
+        provider=f"Crypto:{payment_info['coin']}",
+        notes=(
+            f"ORDER_TOTAL_CENTS={int(order_total_cents)}|"
+            f"CRYPTO_AMOUNT={payment_info['amount']}|"
+            f"TX={payment_info['tx_ref']}"
+        ),
+    )
+    crypto_deposit = db.CryptoDeposit(
+        user_id=w.user.user_id,
+        coin=payment_info["coin"],
+        address=payment_info["address"],
+        amount=str(payment_info["amount"]),
+        fiat_amount=f"{payment_info['fiat_amount']:.2f}",
+        tx_ref=payment_info["tx_ref"],
+        confirmed=False,
+        created_at=datetime.datetime.utcnow(),
+    )
+    shipping_details = db.ShippingDetails(
+        order=order,
+        name=shipping["name"],
+        address=shipping["address"],
+        phone=shipping["phone"],
+        notes=shipping.get("notes", ""),
+        created_at=datetime.datetime.utcnow(),
+    )
+    w.session.add(transaction)
+    w.session.add(crypto_deposit)
+    w.session.add(shipping_details)
+    w.session.commit()
+
+    notify_owner_of_order(w, order, payment_info, shipping)
+    w.bot.send_message(
+        w.chat.id,
+        f"✅ Order #{order.order_id} received. Your crypto payment is now pending manual review.",
+    )
+    return True
+
+
+def run_crypto_checkout(w: "_w.Worker", order_total_cents: int) -> Optional[dict]:
+    import telegram
+
+    mgr = w._crypto_manager()
+    if mgr is None:
+        w.bot.send_message(w.chat.id, "⚠️ Crypto checkout is not available right now.")
+        return None
     coins = mgr.get_available_coins()
     if not coins:
-        w.bot.send_message(
-            w.chat.id,
-            "\u26a0\ufe0f No cryptocurrency addresses are configured. "
-            "Please contact the shop owner.",
-        )
+        w.bot.send_message(w.chat.id, "⚠️ No payment coins are configured yet. Please contact the owner.")
         return None
 
-    # Build coin-selection keyboard
-    keyboard = [[telegram.KeyboardButton(c)] for c in coins]
+    keyboard = [[telegram.KeyboardButton(coin)] for coin in coins]
     keyboard.append([telegram.KeyboardButton(w.loc.get("menu_cancel"))])
     w.bot.send_message(
         w.chat.id,
-        "\U0001f4b0 <b>Select cryptocurrency to pay with:</b>",
+        "💰 <b>Select the cryptocurrency you want to pay with.</b>",
         parse_mode="HTML",
         reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True),
     )
-    selection = w._Worker__wait_for_specific_message(coins, cancellable=True)
-    if hasattr(selection, "__class__") and selection.__class__.__name__ == "CancelSignal":
+    coin = w._Worker__wait_for_specific_message(coins, cancellable=True)
+    if _is_cancel(coin):
         return None
 
-    coin = selection.upper()
-    info = mgr.get_payment_info(
-        fiat_cents=order_total_cents,
-        coin=coin,
+    info = w._crypto_manager().get_payment_info(
+        fiat_cents=int(order_total_cents),
+        coin=str(coin),
         currency_exp=w.cfg["Payments"]["currency_exp"],
         fiat=w.cfg["Payments"]["currency"].lower(),
         currency_symbol=w.cfg["Payments"].get("currency_symbol", "€"),
     )
-    if not info:
-        w.bot.send_message(
-            w.chat.id,
-            f"\u274c Could not get rate for {coin}. Try another coin or contact support.",
-        )
+    if info is None:
+        w.bot.send_message(w.chat.id, "❌ Could not fetch a payment quote for that coin. Please try again.")
         return None
 
-    # Show payment details
     w.bot.send_message(
         w.chat.id,
-        "\U0001f4cb <b>Payment Instructions</b>\n\n" + info["display"],
+        f"📋 <b>Payment Instructions</b>\n\n{info['display']}",
         parse_mode="HTML",
         reply_markup=telegram.ReplyKeyboardRemove(),
     )
-    w.bot.send_message(
-        w.chat.id,
-        "\u23f3 Waiting for the owner to confirm your payment. "
-        "Please send your transaction ID or a screenshot as proof.",
-    )
-
-    # Wait for user to provide tx reference
-    w.bot.send_message(w.chat.id, "Please send your transaction ID / hash:")
-    tx_ref_msg = w._Worker__wait_for_regex(r"(.+)", cancellable=True)
-    if hasattr(tx_ref_msg, "__class__") and tx_ref_msg.__class__.__name__ == "CancelSignal":
-        tx_ref = "not provided"
-    else:
-        tx_ref = str(tx_ref_msg).strip()
-
-    return {
-        "coin": info["coin"],
-        "address": info["address"],
-        "amount": info["amount"],
-        "fiat_amount": info["fiat_amount"],
-        "fiat_symbol": info["fiat_symbol"],
-        "tx_ref": tx_ref,
-        "qr_string": info["qr_string"],
-    }
+    w.bot.send_message(w.chat.id, "Reply with your TX ID or proof reference after sending the payment.")
+    tx_reply = w._Worker__wait_for_regex(r"(.+)", cancellable=True)
+    if _is_cancel(tx_reply):
+        return None
+    info["tx_ref"] = str(tx_reply).strip()
+    return info
 
 
-# ── Shipping Details Collection ─────────────────────────────────────────────
-def collect_shipping_details(w: "_w.Worker") -> dict | None:
-    """
-    FSM-style conversation to collect shipping details after payment.
-    Returns dict with name/address/phone/notes, or None on cancel.
-    """
+def collect_shipping_details(w: "_w.Worker") -> Optional[dict]:
     import telegram
 
-    cancel_kb = telegram.InlineKeyboardMarkup(
+    cancel = telegram.InlineKeyboardMarkup(
         [[telegram.InlineKeyboardButton(w.loc.get("menu_cancel"), callback_data="cmd_cancel")]]
     )
-
     w.bot.send_message(
         w.chat.id,
-        "\U0001f69a <b>Shipping Details</b>\n\nPlease provide the following information.",
+        "🚚 <b>Shipping Details</b>",
         parse_mode="HTML",
         reply_markup=telegram.ReplyKeyboardRemove(),
     )
 
-    # Full name
-    w.bot.send_message(w.chat.id, "\U0001f464 Full name:", reply_markup=cancel_kb)
+    w.bot.send_message(w.chat.id, "Full name:", reply_markup=cancel)
     name = w._Worker__wait_for_regex(r"(.+)", cancellable=True)
-    if hasattr(name, "__class__") and name.__class__.__name__ == "CancelSignal":
+    if _is_cancel(name):
         return None
 
-    # Delivery address
-    w.bot.send_message(w.chat.id, "\U0001f3e0 Delivery address (street, city, country):",
-                       reply_markup=cancel_kb)
+    w.bot.send_message(w.chat.id, "Shipping address:", reply_markup=cancel)
     address = w._Worker__wait_for_regex(r"(.+)", cancellable=True)
-    if hasattr(address, "__class__") and address.__class__.__name__ == "CancelSignal":
+    if _is_cancel(address):
         return None
 
-    # Phone
-    w.bot.send_message(w.chat.id, "\U0001f4f1 Phone number:", reply_markup=cancel_kb)
-    phone = w._Worker__wait_for_regex(r"(\+?[0-9\s\-]{7,})", cancellable=True)
-    if hasattr(phone, "__class__") and phone.__class__.__name__ == "CancelSignal":
+    w.bot.send_message(w.chat.id, "Phone number:", reply_markup=cancel)
+    phone = w._Worker__wait_for_regex(r"(.+)", cancellable=True)
+    if _is_cancel(phone):
         return None
 
-    # Notes
-    skip_kb = telegram.InlineKeyboardMarkup(
-        [[telegram.InlineKeyboardButton("Skip", callback_data="cmd_cancel")]]
-    )
-    w.bot.send_message(w.chat.id, "\U0001f4dd Additional notes (or press Skip):",
-                       reply_markup=skip_kb)
-    notes_raw = w._Worker__wait_for_regex(r"(.+)", cancellable=True)
-    notes = "" if (hasattr(notes_raw, "__class__") and
-                   notes_raw.__class__.__name__ == "CancelSignal") else str(notes_raw).strip()
+    w.bot.send_message(w.chat.id, "Order notes (type N/A if none):", reply_markup=cancel)
+    notes = w._Worker__wait_for_regex(r"(.+)", cancellable=True)
+    if _is_cancel(notes):
+        return None
 
     return {
         "name": str(name).strip(),
         "address": str(address).strip(),
         "phone": str(phone).strip(),
-        "notes": notes,
+        "notes": "" if str(notes).strip().upper() == "N/A" else str(notes).strip(),
     }
 
 
-# ── Notify Owner After Order ─────────────────────────────────────────────────
-def notify_owner_of_order(
-    w: "_w.Worker",
-    order,
-    payment_info: dict,
-    shipping: dict,
-) -> None:
-    """Send a full order summary to all admins with receive_orders permission."""
-    import database as db
-
-    admins = (
-        w.session.query(db.Admin)
-        .filter_by(receive_orders=True)
-        .all()
-    )
+def notify_owner_of_order(w: "_w.Worker", order, payment_info: dict, shipping: dict) -> None:
     lines = [
-        "\U0001f6d2 <b>NEW ORDER — Crypto Payment</b>",
-        f"\U0001f464 Customer: {w.user.mention()} (ID {w.user.user_id})",
-        f"\U0001f4e6 Order #: {order.order_id}",
+        "🛒 <b>New Crypto Order</b>",
+        f"Customer: {escape(w.user.mention())} ({w.user.user_id})",
+        f"Order #: {order.order_id}",
         "",
-        "<b>Items:</b>",
+        "<b>Items</b>",
     ]
     for item in order.items:
-        lines.append(f"  • {item.product.name} — {str(w.Price(item.product.price))}")
-
-    lines += [
-        "",
-        f"<b>Payment:</b>",
-        f"  Coin: {payment_info['coin']}",
-        f"  Amount: {payment_info['amount']} {payment_info['coin']}",
-        f"  Fiat: {payment_info['fiat_symbol']}{payment_info['fiat_amount']:.2f}",
-        f"  Tx ref: {payment_info['tx_ref']}",
-        f"  Address: <code>{payment_info['address']}</code>",
-        "",
-        "<b>Shipping:</b>",
-        f"  Name: {shipping['name']}",
-        f"  Address: {shipping['address']}",
-        f"  Phone: {shipping['phone']}",
-    ]
+        lines.append(f"• {escape(item.product.name)} — {escape(str(w.Price(item.product.price)))}")
+    if order.notes:
+        lines.extend(["", f"Order notes: {escape(order.notes)}"])
+    lines.extend(
+        [
+            "",
+            "<b>Payment</b>",
+            f"Coin: {escape(payment_info['coin'])}",
+            f"Amount: <code>{escape(str(payment_info['amount']))} {escape(payment_info['coin'])}</code>",
+            f"Fiat snapshot: {payment_info['fiat_symbol']}{payment_info['fiat_amount']:.2f}",
+            f"Deposit address: <code>{escape(payment_info['address'])}</code>",
+            f"TX / proof: <code>{escape(payment_info['tx_ref'])}</code>",
+            "",
+            "<b>Shipping</b>",
+            f"Name: {escape(shipping['name'])}",
+            f"Address: {escape(shipping['address'])}",
+            f"Phone: {escape(shipping['phone'])}",
+        ]
+    )
     if shipping.get("notes"):
-        lines.append(f"  Notes: {shipping['notes']}")
-
-    msg = "\n".join(lines)
-    for admin in admins:
-        try:
-            w.bot.send_message(admin.user_id, msg, parse_mode="HTML")
-        except Exception as exc:
-            log.warning(f"Could not notify admin {admin.user_id}: {exc}")
+        lines.append(f"Shipping notes: {escape(shipping['notes'])}")
+    _notify_admins(w, "\n".join(lines))

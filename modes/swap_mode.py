@@ -1,11 +1,8 @@
-"""
-modes/swap_mode.py
-Swap Mode — user selects coin-in / coin-out, gets live CoinGecko rate quote,
-deposits to payout flow with owner-set spread %.
-"""
 from __future__ import annotations
 
+import datetime
 import logging
+from html import escape
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -14,130 +11,166 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-def run_swap_menu(w: "_w.Worker") -> None:
-    """Main swap mode entry point."""
-    import telegram
-    import toml
-    from crypto_manager import CryptoPaymentManager
+def _is_cancel(value) -> bool:
+    from worker import CancelSignal
 
-    mgr: CryptoPaymentManager = w._crypto_manager()
+    return isinstance(value, CancelSignal)
+
+
+def _load_spread_pct() -> float:
+    try:
+        import modes
+
+        config = modes._read_mode_config()  # type: ignore[attr-defined]
+        spread = float(config.get("swap_spread_pct", 1.5))
+        return max(spread, 0.0)
+    except Exception:
+        return 1.5
+
+
+def _notify_admins(w: "_w.Worker", message: str) -> None:
+    import database as db
+
+    admins = w.session.query(db.Admin).filter_by(receive_orders=True).all()
+    for admin in admins:
+        try:
+            w.bot.send_message(admin.user_id, message, parse_mode="HTML")
+        except Exception as exc:
+            log.warning("Could not notify admin %s: %s", admin.user_id, exc)
+
+
+def run_swap_menu(w: "_w.Worker") -> None:
+    import database as db
+    import telegram
+
+    mgr = w._crypto_manager()
+    if mgr is None:
+        w.bot.send_message(w.chat.id, "⚠️ Crypto swaps are not available right now.")
+        return
     coins = mgr.get_available_coins()
     if len(coins) < 2:
-        w.bot.send_message(w.chat.id,
-                           "Swap requires at least 2 configured coin addresses.")
+        w.bot.send_message(w.chat.id, "⚠️ Swap mode needs at least two configured coin addresses.")
         return
 
-    # Read owner spread from config/mode_config.toml
-    spread_pct = 1.5
-    try:
-        cfg = toml.load("config/mode_config.toml")
-        spread_pct = float(cfg.get("swap_spread_pct", 1.5))
-    except Exception:
-        pass
-
-    # Coin-in selection
-    kb_in = [[telegram.KeyboardButton(c)] for c in coins]
-    kb_in.append([telegram.KeyboardButton(w.loc.get("menu_cancel"))])
+    spread_pct = _load_spread_pct()
+    coin_keyboard = [[telegram.KeyboardButton(coin)] for coin in coins]
+    coin_keyboard.append([telegram.KeyboardButton(w.loc.get("menu_cancel"))])
     w.bot.send_message(
         w.chat.id,
-        "\U0001f504 <b>Crypto Swap</b>\n\nSelect coin to <b>send</b> (coin-in):",
+        "🔄 <b>Swap Crypto</b>\n\nChoose the coin you will send.",
         parse_mode="HTML",
-        reply_markup=telegram.ReplyKeyboardMarkup(kb_in, one_time_keyboard=True),
+        reply_markup=telegram.ReplyKeyboardMarkup(coin_keyboard, one_time_keyboard=True),
     )
     coin_in = w._Worker__wait_for_specific_message(coins, cancellable=True)
-    if hasattr(coin_in, "__class__") and coin_in.__class__.__name__ == "CancelSignal":
+    if _is_cancel(coin_in):
         return
 
-    # Coin-out selection (exclude coin-in)
-    out_coins = [c for c in coins if c != coin_in]
-    kb_out = [[telegram.KeyboardButton(c)] for c in out_coins]
-    kb_out.append([telegram.KeyboardButton(w.loc.get("menu_cancel"))])
+    payout_coins = [coin for coin in coins if coin != coin_in]
+    payout_keyboard = [[telegram.KeyboardButton(coin)] for coin in payout_coins]
+    payout_keyboard.append([telegram.KeyboardButton(w.loc.get("menu_cancel"))])
     w.bot.send_message(
         w.chat.id,
-        f"Select coin to <b>receive</b> (coin-out):",
-        parse_mode="HTML",
-        reply_markup=telegram.ReplyKeyboardMarkup(kb_out, one_time_keyboard=True),
+        "Choose the coin you want to receive.",
+        reply_markup=telegram.ReplyKeyboardMarkup(payout_keyboard, one_time_keyboard=True),
     )
-    coin_out = w._Worker__wait_for_specific_message(out_coins, cancellable=True)
-    if hasattr(coin_out, "__class__") and coin_out.__class__.__name__ == "CancelSignal":
+    coin_out = w._Worker__wait_for_specific_message(payout_coins, cancellable=True)
+    if _is_cancel(coin_out):
         return
 
-    # Amount to send
     w.bot.send_message(
         w.chat.id,
-        f"How much <b>{coin_in}</b> do you want to swap?\n"
-        f"Enter amount (e.g. <code>0.05</code>):",
+        f"Enter the amount of <b>{escape(str(coin_in))}</b> you want to swap.",
         parse_mode="HTML",
         reply_markup=telegram.ReplyKeyboardRemove(),
     )
-    amount_str = w._Worker__wait_for_regex(r"([0-9]+(?:[.,][0-9]+)?)", cancellable=True)
-    if hasattr(amount_str, "__class__") and amount_str.__class__.__name__ == "CancelSignal":
+    amount_reply = w._Worker__wait_for_regex(r"([0-9]+(?:[.,][0-9]+)?)", cancellable=True)
+    if _is_cancel(amount_reply):
         return
-    amount_in = float(str(amount_str).replace(",", "."))
+    amount_in = float(str(amount_reply).replace(",", "."))
+    if amount_in <= 0:
+        w.bot.send_message(w.chat.id, "❌ The swap amount must be greater than zero.")
+        return
 
-    # Fetch rates and calculate
     fiat = w.cfg["Payments"]["currency"].lower()
-    rate_in = mgr.get_live_rate(coin_in, fiat)
-    rate_out = mgr.get_live_rate(coin_out, fiat)
-    if not rate_in or not rate_out:
-        w.bot.send_message(w.chat.id, "\u274c Could not fetch live rates. Try again later.")
+    currency_symbol = w.cfg["Payments"].get("currency_symbol", "€")
+    rate_in = mgr.get_live_rate(str(coin_in), fiat)
+    rate_out = mgr.get_live_rate(str(coin_out), fiat)
+    if rate_in is None or rate_out is None:
+        w.bot.send_message(w.chat.id, "❌ Live rates are unavailable right now. Please try again later.")
         return
 
-    fiat_val = amount_in * rate_in
-    amount_out_gross = fiat_val / rate_out
-    amount_out_net = round(amount_out_gross * (1 - spread_pct / 100), 8)
-    cs = w.cfg["Payments"].get("currency_symbol", "€")
+    fiat_value = amount_in * rate_in
+    gross_amount_out = fiat_value / rate_out
+    net_amount_out = round(gross_amount_out * (1 - (spread_pct / 100.0)), 8)
+    deposit_address = mgr.addresses.get(str(coin_in).upper(), "")
+    if not deposit_address:
+        w.bot.send_message(w.chat.id, "❌ No deposit address is configured for that coin.")
+        return
 
-    quote_msg = (
-        f"\U0001f4cb <b>Swap Quote</b>\n\n"
-        f"Send:    <code>{amount_in} {coin_in}</code> (≈ {cs}{fiat_val:.2f})\n"
-        f"Receive: <code>{amount_out_net} {coin_out}</code>\n"
-        f"Spread:  {spread_pct}%\n\n"
-        f"Deposit address for <b>{coin_in}</b>:\n"
-        f"<code>{mgr.addresses.get(coin_in.upper(), 'N/A')}</code>\n\n"
-        f"After depositing, send your transaction ID below."
-    )
-    w.bot.send_message(w.chat.id, quote_msg, parse_mode="HTML")
-
-    # Confirm or cancel
-    confirm_kb = telegram.ReplyKeyboardMarkup(
-        [["\u2705 Confirm Swap"], [w.loc.get("menu_cancel")]],
+    confirm_button = "✅ Confirm Swap"
+    confirm_keyboard = telegram.ReplyKeyboardMarkup(
+        [[telegram.KeyboardButton(confirm_button)], [telegram.KeyboardButton(w.loc.get("menu_cancel"))]],
         one_time_keyboard=True,
     )
-    w.bot.send_message(w.chat.id, "Proceed with this swap?", reply_markup=confirm_kb)
-    confirm = w._Worker__wait_for_specific_message(
-        ["\u2705 Confirm Swap"], cancellable=True)
-    if hasattr(confirm, "__class__") and confirm.__class__.__name__ == "CancelSignal":
+    w.bot.send_message(
+        w.chat.id,
+        (
+            "📋 <b>Swap Quote</b>\n\n"
+            f"Send: <code>{amount_in:.8f} {coin_in}</code>\n"
+            f"Receive: <code>{net_amount_out:.8f} {coin_out}</code>\n"
+            f"Estimated fiat value: {currency_symbol}{fiat_value:.2f}\n"
+            f"Spread: {spread_pct:.2f}%"
+        ),
+        parse_mode="HTML",
+        reply_markup=confirm_keyboard,
+    )
+    confirmation = w._Worker__wait_for_specific_message([confirm_button], cancellable=True)
+    if _is_cancel(confirmation):
         return
-
-    # Get TX ID
-    w.bot.send_message(w.chat.id, "Enter your transaction ID / hash:",
-                       reply_markup=telegram.ReplyKeyboardRemove())
-    tx = w._Worker__wait_for_regex(r"(.+)", cancellable=True)
-    if hasattr(tx, "__class__") and tx.__class__.__name__ == "CancelSignal":
-        tx = "not provided"
 
     w.bot.send_message(
         w.chat.id,
-        f"\u23f3 Swap request submitted!\n"
-        f"You will receive <b>{amount_out_net} {coin_out}</b> "
-        f"to your wallet after the owner processes your deposit.",
+        (
+            f"💰 Send <code>{amount_in:.8f} {coin_in}</code> to:\n"
+            f"<code>{escape(deposit_address)}</code>\n\n"
+            "After sending the payment, reply with your transaction ID."
+        ),
         parse_mode="HTML",
+        reply_markup=telegram.ReplyKeyboardRemove(),
     )
+    tx_reply = w._Worker__wait_for_regex(r"(.+)", cancellable=True)
+    if _is_cancel(tx_reply):
+        return
+    tx_ref = str(tx_reply).strip()
 
-    # Notify admins
-    import database as db
-    admins = w.session.query(db.Admin).filter_by(receive_orders=True).all()
-    swap_msg = (
-        f"\U0001f504 <b>Swap Request</b>\n"
-        f"User: {w.user.mention()} ({w.user.user_id})\n"
-        f"Coin-in: {amount_in} {coin_in}\n"
-        f"Coin-out: {amount_out_net} {coin_out}\n"
-        f"TX ref: {str(tx).strip()}\n"
-        f"Deposit address: {mgr.addresses.get(coin_in.upper(), 'N/A')}"
+    swap = db.SwapRequest(
+        user_id=w.user.user_id,
+        coin_in=str(coin_in).upper(),
+        amount_in=f"{amount_in:.8f}",
+        coin_out=str(coin_out).upper(),
+        amount_out=f"{net_amount_out:.8f}",
+        spread_pct=f"{spread_pct:.2f}",
+        deposit_addr=deposit_address,
+        tx_ref=tx_ref,
+        status="pending",
+        created_at=datetime.datetime.utcnow(),
     )
-    for admin in admins:
-        try:
-            w.bot.send_message(admin.user_id, swap_msg, parse_mode="HTML")
-        except Exception as exc:
-            log.warning(f"Could not notify admin {admin.user_id}: {exc}")
+    w.session.add(swap)
+    w.session.commit()
+
+    admin_message = (
+        "🔄 <b>New Swap Request</b>\n"
+        f"User: {escape(w.user.mention())} ({w.user.user_id})\n"
+        f"Send: <code>{amount_in:.8f} {coin_in}</code>\n"
+        f"Receive: <code>{net_amount_out:.8f} {coin_out}</code>\n"
+        f"Fiat estimate: {currency_symbol}{fiat_value:.2f}\n"
+        f"Spread: {spread_pct:.2f}%\n"
+        f"Deposit address: <code>{escape(deposit_address)}</code>\n"
+        f"TX ID: <code>{escape(tx_ref)}</code>\n"
+        f"Swap request #: {swap.id}"
+    )
+    _notify_admins(w, admin_message)
+    w.bot.send_message(
+        w.chat.id,
+        f"✅ Swap request #{swap.id} submitted. The admin team will review your payment soon.",
+    )

@@ -211,7 +211,8 @@ class Worker(threading.Thread):
         # noinspection PyBroadException
         try:
             # Welcome the user to the bot
-            if self.cfg["Appearance"]["display_welcome_message"] == "yes":
+            welcome_setting = self.cfg["Appearance"]["display_welcome_message"]
+            if welcome_setting is True or str(welcome_setting).lower() == "yes":
                 self.bot.send_message(self.chat.id, self.loc.get("conversation_after_start"))
             # If the user is not an admin, send him to the user menu
             if self.admin is None:
@@ -439,14 +440,20 @@ class Worker(threading.Thread):
                                                credit=self.Price(self.user.credit)),
                                   reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
             # Wait for a reply from the user
-            selection = self.__wait_for_specific_message([
-                self.loc.get("menu_order"),
-                self.loc.get("menu_order_status"),
+            accepted_messages = []
+            if _active_mode == "SHOP_BOT":
+                accepted_messages += [self.loc.get("menu_order"), self.loc.get("menu_order_status")]
+            elif _active_mode == "INVESTMENT_BOT":
+                accepted_messages.append("💼 Investment Portal")
+            elif _active_mode == "SWAP_BOT":
+                accepted_messages.append("🔄 Swap Crypto")
+            accepted_messages += [
                 self.loc.get("menu_add_credit"),
                 self.loc.get("menu_language"),
                 self.loc.get("menu_help"),
                 self.loc.get("menu_bot_info"),
-            ])
+            ]
+            selection = self.__wait_for_specific_message(accepted_messages)
             # After the user reply, update the user data
             self.update_user()
             # If the user has selected the Order option...
@@ -649,21 +656,15 @@ class Worker(threading.Thread):
                 order_item = db.OrderItem(product=cart[product][0],
                                           order=order)
                 self.session.add(order_item)
-        # Ensure the user has enough credit to make the purchase
-        credit_required = self.__get_cart_value(cart) - self.user.credit
-        # Notify user in case of insufficient credit
-        if credit_required > 0:
-            self.bot.send_message(self.chat.id, self.loc.get("error_not_enough_credit"))
-            # Suggest crypto top-up for missing credit if refill on checkout is enabled
-            if self.cfg["Appearance"].get("refill_on_checkout", False):
-                self.__add_credit_crypto()
-        # If afer requested payment credit is still insufficient (either payment failure or cancel)
-        if self.user.credit < self.__get_cart_value(cart):
-            # Rollback all the changes
+        try:
+            from modes.shop_mode import run_shop_checkout
+        except ImportError:
             self.session.rollback()
-        else:
-            # User has credit and valid order, perform transaction now
-            self.__order_transaction(order=order, value=-int(self.__get_cart_value(cart)))
+            self.bot.send_message(self.chat.id, "Crypto checkout is unavailable right now.")
+            return
+        if not run_shop_checkout(self, order=order, order_total_cents=int(self.__get_cart_value(cart))):
+            self.session.rollback()
+            return
 
     def __get_cart_value(self, cart):
         # Calculate total items value in cart
@@ -762,6 +763,180 @@ class Worker(threading.Thread):
         # CancelSignal or menu_cancel → return silently
 
 
+    def _crypto_manager(self):
+        """Return the shared crypto payment manager instance, if available."""
+        if self._crypto_mgr is None:
+            manager_cls = _CryptoPaymentManager
+            if manager_cls is None:
+                try:
+                    from crypto_manager import CryptoPaymentManager as manager_cls
+                except ImportError:
+                    manager_cls = None
+            if manager_cls is None:
+                log.warning("crypto_manager module is unavailable")
+                return None
+            try:
+                self._crypto_mgr = manager_cls()
+            except Exception as exc:
+                log.warning(f"Failed to initialise crypto manager: {exc}")
+                self._crypto_mgr = None
+        return self._crypto_mgr
+
+    def __add_credit_crypto(self):
+        """Collect a pending crypto wallet top-up from the user."""
+        log.debug("Displaying __add_credit_crypto")
+        mgr = self._crypto_manager()
+        if mgr is None:
+            self.bot.send_message(self.chat.id, "⚠️ Crypto payments are not available right now.")
+            return
+        coins = mgr.get_available_coins()
+        if not coins:
+            self.bot.send_message(self.chat.id, "⚠️ No crypto deposit addresses are configured yet.")
+            return
+        cancel = telegram.InlineKeyboardMarkup(
+            [[telegram.InlineKeyboardButton(self.loc.get("menu_cancel"), callback_data="cmd_cancel")]]
+        )
+        self.bot.send_message(
+            self.chat.id,
+            f"Enter the amount you want to add in {self.cfg['Payments']['currency']}.",
+            reply_markup=cancel,
+        )
+        amount_reply = self.__wait_for_regex(r"([0-9]+(?:[.,][0-9]{1,2})?)", cancellable=True)
+        if isinstance(amount_reply, CancelSignal):
+            return
+        fiat_cents = int(self.Price(amount_reply))
+        if fiat_cents <= 0:
+            self.bot.send_message(self.chat.id, "❌ The amount must be greater than zero.")
+            return
+        keyboard = [[telegram.KeyboardButton(coin)] for coin in coins]
+        keyboard.append([telegram.KeyboardButton(self.loc.get("menu_cancel"))])
+        self.bot.send_message(
+            self.chat.id,
+            "Select the cryptocurrency you want to use.",
+            reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True),
+        )
+        coin = self.__wait_for_specific_message(coins, cancellable=True)
+        if isinstance(coin, CancelSignal):
+            return
+        info = mgr.get_payment_info(
+            fiat_cents=fiat_cents,
+            coin=coin,
+            currency_exp=self.cfg["Payments"]["currency_exp"],
+            fiat=self.cfg["Payments"]["currency"].lower(),
+            currency_symbol=self.cfg["Payments"].get("currency_symbol", "€"),
+        )
+        if info is None:
+            self.bot.send_message(self.chat.id, "❌ Could not generate crypto payment details right now.")
+            return
+        self.bot.send_message(
+            self.chat.id,
+            "📋 <b>Crypto Top-Up</b>
+
+" + info["display"],
+            parse_mode="HTML",
+            reply_markup=telegram.ReplyKeyboardRemove(),
+        )
+        self.bot.send_message(self.chat.id, "Reply with your transaction ID after sending the payment.", reply_markup=cancel)
+        tx_reply = self.__wait_for_regex(r"(.+)", cancellable=True)
+        if isinstance(tx_reply, CancelSignal):
+            return
+        tx_ref = str(tx_reply).strip()
+        transaction = db.Transaction(
+            user=self.user,
+            value=0,
+            provider=f"Crypto:{info['coin']}",
+            notes=(
+                f"PENDING_CRYPTO_TOPUP|FIAT_CENTS={fiat_cents}|CRYPTO_AMOUNT={info['amount']}|"
+                f"ADDRESS={info['address']}|TX={tx_ref}"
+            ),
+        )
+        self.session.add(transaction)
+        self.session.commit()
+        self.bot.send_message(
+            self.chat.id,
+            "✅ Your top-up request has been submitted. An admin will review it shortly.",
+        )
+        admins = self.session.query(db.Admin).filter_by(receive_orders=True).all()
+        for admin in admins:
+            try:
+                self.bot.send_message(
+                    admin.user_id,
+                    (
+                        "💰 <b>Pending Crypto Top-Up</b>
+"
+                        f"User: {escape(self.user.mention())} ({self.user.user_id})
+"
+                        f"Fiat amount: {self.Price(fiat_cents)}
+"
+                        f"Crypto amount: <code>{info['amount']} {info['coin']}</code>
+"
+                        f"Address: <code>{escape(info['address'])}</code>
+"
+                        f"TX ID: <code>{escape(tx_ref)}</code>
+"
+                        f"Transaction #: {transaction.transaction_id}"
+                    ),
+                    parse_mode="HTML",
+                )
+            except Exception as exc:
+                log.warning(f"Could not notify admin {admin.user_id}: {exc}")
+
+    def __admin_mode_panel(self):
+        """Allow the owner to switch the active bot mode."""
+        log.debug("Displaying __admin_mode_panel")
+        if _modes_pkg is None:
+            self.bot.send_message(self.chat.id, "Mode controls are unavailable right now.")
+            return
+        current_mode = _modes_pkg.get_active_mode()
+        choices = ["🛍 SHOP_BOT", "💼 INVESTMENT_BOT", "🔄 SWAP_BOT"]
+        keyboard = [[telegram.KeyboardButton(choice)] for choice in choices]
+        keyboard.append([telegram.KeyboardButton(self.loc.get("menu_cancel"))])
+        self.bot.send_message(
+            self.chat.id,
+            f"Current mode: <b>{current_mode}</b>
+Choose the new mode.",
+            parse_mode="HTML",
+            reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True),
+        )
+        selection = self.__wait_for_specific_message(choices, cancellable=True)
+        if isinstance(selection, CancelSignal):
+            return
+        new_mode = str(selection).split()[-1]
+        _modes_pkg.set_active_mode(new_mode)
+        self.bot.send_message(self.chat.id, f"✅ Active mode set to {new_mode}.")
+
+    def __admin_reload_crypto(self):
+        """Reload crypto addresses from disk."""
+        mgr = self._crypto_manager()
+        if mgr is None:
+            self.bot.send_message(self.chat.id, "⚠️ Crypto manager is unavailable.")
+            return
+        mgr.load_addresses()
+        coins = mgr.get_available_coins()
+        if coins:
+            self.bot.send_message(self.chat.id, f"✅ Loaded crypto coins: {', '.join(coins)}")
+        else:
+            self.bot.send_message(self.chat.id, "⚠️ No usable crypto addresses were found.")
+
+    def __admin_woo_import(self):
+        """Import products from a WooCommerce XML export."""
+        cancel = telegram.InlineKeyboardMarkup(
+            [[telegram.InlineKeyboardButton(self.loc.get("menu_cancel"), callback_data="cmd_cancel")]]
+        )
+        self.bot.send_message(self.chat.id, "Send the absolute path to the WooCommerce XML export.", reply_markup=cancel)
+        path_reply = self.__wait_for_regex(r"(.+)", cancellable=True)
+        if isinstance(path_reply, CancelSignal):
+            return
+        try:
+            from woo_importer import WooCommerceXMLImporter
+
+            importer = WooCommerceXMLImporter(self.session, xml_path=str(path_reply).strip())
+            imported = importer.import_products()
+        except Exception as exc:
+            self.bot.send_message(self.chat.id, f"❌ WooCommerce import failed: {exc}")
+            return
+        self.bot.send_message(self.chat.id, f"✅ WooCommerce import finished. Processed {imported} product(s).")
+
     def __bot_info(self):
         """Send information about the bot."""
         log.debug("Displaying __bot_info")
@@ -793,13 +968,24 @@ class Worker(threading.Thread):
             self.bot.send_message(self.chat.id, self.loc.get("conversation_open_admin_menu"),
                                   reply_markup=telegram.ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
             # Wait for a reply from the user
-            selection = self.__wait_for_specific_message([self.loc.get("menu_products"),
-                                                          self.loc.get("menu_orders"),
-                                                          self.loc.get("menu_user_mode"),
-                                                          self.loc.get("menu_edit_credit"),
-                                                          self.loc.get("menu_transactions"),
-                                                          self.loc.get("menu_csv"),
-                                                          self.loc.get("menu_edit_admins")])
+            accepted_messages = []
+            if self.admin.edit_products:
+                accepted_messages.append(self.loc.get("menu_products"))
+            if self.admin.receive_orders:
+                accepted_messages.append(self.loc.get("menu_orders"))
+            if self.admin.create_transactions:
+                if self.cfg["Payments"]["Cash"]["enable_create_transaction"]:
+                    accepted_messages.append(self.loc.get("menu_edit_credit"))
+                accepted_messages.extend([self.loc.get("menu_transactions"), self.loc.get("menu_csv")])
+            if self.admin.is_owner:
+                accepted_messages.extend([
+                    self.loc.get("menu_edit_admins"),
+                    "🤖 Bot Mode",
+                    "💰 Crypto Addresses",
+                    "📦 Import Products (WooCommerce)",
+                ])
+            accepted_messages.append(self.loc.get("menu_user_mode"))
+            selection = self.__wait_for_specific_message(accepted_messages)
             # If the user has selected the Products option and has the privileges to perform the action...
             if selection == self.loc.get("menu_products") and self.admin.edit_products:
                 # Open the products menu
@@ -830,6 +1016,12 @@ class Worker(threading.Thread):
             elif selection == self.loc.get("menu_csv") and self.admin.create_transactions:
                 # Generate the .csv file
                 self.__transactions_file()
+            elif selection == "🤖 Bot Mode" and self.admin.is_owner:
+                self.__admin_mode_panel()
+            elif selection == "💰 Crypto Addresses" and self.admin.is_owner:
+                self.__admin_reload_crypto()
+            elif selection == "📦 Import Products (WooCommerce)" and self.admin.is_owner:
+                self.__admin_woo_import()
 
     def __products_menu(self):
         """Display the admin menu to select a product to edit."""

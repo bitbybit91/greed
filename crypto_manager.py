@@ -1,107 +1,138 @@
-"""
-crypto_manager.py
-CryptoCurrency Payment Manager for greed bot.
-Loads owner deposit addresses from config/crypto_addresses.toml,
-fetches live rates from CoinGecko (60 s cache), and converts fiat totals
-to exact crypto amounts.
-"""
 from __future__ import annotations
 
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import requests
-import toml
+
+try:
+    import tomllib as _toml_loader  # type: ignore[attr-defined]
+except ImportError:
+    try:
+        import toml as _toml_loader  # type: ignore[no-redef]
+    except ImportError:
+        _toml_loader = None
 
 log = logging.getLogger(__name__)
 
-# CoinGecko symbol → coin-id mapping (extend as needed)
 COINGECKO_IDS: Dict[str, str] = {
-    "BTC":  "bitcoin",
-    "ETH":  "ethereum",
-    "XMR":  "monero",
+    "BTC": "bitcoin",
+    "ETH": "ethereum",
+    "XMR": "monero",
     "USDT": "tether",
     "USDC": "usd-coin",
-    "BNB":  "binancecoin",
-    "LTC":  "litecoin",
+    "BNB": "binancecoin",
+    "LTC": "litecoin",
     "DOGE": "dogecoin",
-    "SOL":  "solana",
-    "TRX":  "tron",
-    "MATIC":"matic-network",
-    "ADA":  "cardano",
+    "SOL": "solana",
+    "TRX": "tron",
+    "MATIC": "matic-network",
+    "ADA": "cardano",
 }
-
 COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
-CACHE_TTL = 60  # seconds
+CACHE_TTL = 60
 
 
 class CryptoPaymentManager:
-    """Owner-configurable crypto deposit + rate-conversion engine."""
-
     def __init__(self, config_path: str = "config/crypto_addresses.toml"):
         self.config_path = Path(config_path)
         self.addresses: Dict[str, str] = {}
-        # cache: key = "BTC_eur", value = (rate_float, unix_ts)
         self._cache: Dict[str, Tuple[float, float]] = {}
         self._fallback: Dict[str, float] = {}
+        self._session = requests.Session()
         self.load_addresses()
 
-    # ── Address Management ───────────────────────────────────────────────
-    def load_addresses(self) -> None:
-        """Reload addresses from the TOML config file."""
+    def _load_config(self) -> dict:
         if not self.config_path.exists():
-            log.warning(f"Crypto addresses config not found: {self.config_path}")
-            return
+            return {}
+        if _toml_loader is not None:
+            try:
+                if hasattr(_toml_loader, "load"):
+                    return _toml_loader.load(str(self.config_path))
+                return _toml_loader.loads(self.config_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                log.warning("Failed to parse %s via TOML loader: %s", self.config_path, exc)
         try:
-            cfg = toml.load(str(self.config_path))
-            self.addresses = {k.upper(): v for k, v in cfg.get("addresses", {}).items()}
-            log.info(f"Loaded {len(self.addresses)} crypto addresses: "
-                     f"{list(self.addresses.keys())}")
+            return self._load_config_fallback()
         except Exception as exc:
-            log.error(f"Failed to load crypto addresses: {exc}")
+            log.warning("Failed to parse %s via fallback parser: %s", self.config_path, exc)
+            return {}
+
+    def _load_config_fallback(self) -> dict:
+        content = self.config_path.read_text(encoding="utf-8")
+        in_addresses = False
+        addresses: Dict[str, str] = {}
+        for raw_line in content.splitlines():
+            line = raw_line.split("#", 1)[0].strip()
+            if not line:
+                continue
+            if line.startswith("[") and line.endswith("]"):
+                in_addresses = line.strip() == "[addresses]"
+                continue
+            if not in_addresses or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip().upper()
+            value = value.strip().strip('"').strip("'")
+            addresses[key] = value
+        return {"addresses": addresses}
+
+    def load_addresses(self) -> None:
+        if not self.config_path.exists():
+            self.addresses = {}
+            log.warning("Crypto addresses config not found: %s", self.config_path)
+            return
+        cfg = self._load_config()
+        raw_addresses = cfg.get("addresses", {}) if isinstance(cfg, dict) else {}
+        cleaned: Dict[str, str] = {}
+        if isinstance(raw_addresses, dict):
+            for coin, address in raw_addresses.items():
+                cleaned[str(coin).upper()] = str(address).strip()
+        self.addresses = cleaned
+        log.info("Loaded %s configured crypto addresses", len(self.get_available_coins()))
 
     def get_available_coins(self) -> List[str]:
-        return [c for c in self.addresses if self.addresses[c]]
+        return sorted([coin for coin, address in self.addresses.items() if str(address).strip()])
 
-    # ── Rate Fetching ────────────────────────────────────────────────────
     def get_live_rate(self, coin: str, fiat: str = "eur") -> Optional[float]:
-        """Return 1 <coin> in <fiat>. Uses 60 s cache; falls back to last known."""
-        key = f"{coin.upper()}_{fiat.lower()}"
-        # Cache hit
+        coin = str(coin).upper()
+        fiat = str(fiat).lower()
+        key = f"{coin}_{fiat}"
         cached = self._cache.get(key)
         if cached and (time.time() - cached[1]) < CACHE_TTL:
             return cached[0]
-        # Fetch
-        coin_id = COINGECKO_IDS.get(coin.upper())
-        if not coin_id:
-            log.warning(f"No CoinGecko ID for {coin}")
-            return self._fallback.get(key)
-        for attempt in range(3):
-            try:
-                resp = requests.get(
-                    COINGECKO_URL,
-                    params={"ids": coin_id, "vs_currencies": fiat.lower()},
-                    timeout=10,
-                )
-                resp.raise_for_status()
-                rate = float(resp.json()[coin_id][fiat.lower()])
-                self._cache[key] = (rate, time.time())
-                self._fallback[key] = rate
-                return rate
-            except Exception as exc:
-                wait = 2 ** attempt
-                log.warning(f"CoinGecko attempt {attempt+1} for {coin}: {exc} "
-                             f"— retrying in {wait}s")
-                time.sleep(wait)
-        # Fallback
-        fb = self._fallback.get(key)
-        if fb:
-            log.warning(f"Using cached fallback rate for {coin}: {fb}")
-        return fb
 
-    # ── Conversion ───────────────────────────────────────────────────────
+        coin_id = COINGECKO_IDS.get(coin)
+        if not coin_id:
+            log.warning("No CoinGecko ID configured for %s", coin)
+            return self._fallback.get(key)
+
+        try:
+            response = self._session.get(
+                COINGECKO_URL,
+                params={"ids": coin_id, "vs_currencies": fiat},
+                timeout=10,
+            )
+            response.raise_for_status()
+            payload = response.json() or {}
+            rate = float(payload[coin_id][fiat])
+            if rate <= 0:
+                raise ValueError("non-positive rate received")
+            now = time.time()
+            self._cache[key] = (rate, now)
+            self._fallback[key] = rate
+            return rate
+        except Exception as exc:
+            fallback = self._fallback.get(key)
+            if fallback is not None:
+                log.warning("CoinGecko unavailable for %s/%s, using cached fallback: %s", coin, fiat, exc)
+                return fallback
+            log.warning("CoinGecko unavailable for %s/%s and no fallback rate exists: %s", coin, fiat, exc)
+            return None
+
     def fiat_to_crypto(
         self,
         fiat_cents: int,
@@ -109,14 +140,12 @@ class CryptoPaymentManager:
         currency_exp: int = 2,
         fiat: str = "eur",
     ) -> Optional[float]:
-        """Convert fiat_cents (int, minimum units) to crypto float amount."""
-        fiat_val = fiat_cents / (10 ** currency_exp)
         rate = self.get_live_rate(coin, fiat)
-        if not rate:
+        if rate is None or rate <= 0:
             return None
-        return round(fiat_val / rate, 8)
+        fiat_value = float(fiat_cents) / float(10 ** currency_exp)
+        return round(fiat_value / rate, 8)
 
-    # ── Payment Info ─────────────────────────────────────────────────────
     def get_payment_info(
         self,
         fiat_cents: int,
@@ -125,44 +154,37 @@ class CryptoPaymentManager:
         fiat: str = "eur",
         currency_symbol: str = "€",
     ) -> Optional[dict]:
-        """
-        Returns a dict with all info needed to display a payment request:
-          coin, address, amount, rate, fiat_amount, fiat_symbol,
-          qr_string, display (HTML-formatted string)
-        Returns None if the coin has no configured address or rate unavailable.
-        """
-        coin = coin.upper()
-        address = self.addresses.get(coin)
+        coin = str(coin).upper()
+        address = str(self.addresses.get(coin, "")).strip()
         if not address:
-            log.warning(f"No address configured for {coin}")
+            log.warning("No address configured for %s", coin)
             return None
         amount = self.fiat_to_crypto(fiat_cents, coin, currency_exp, fiat)
         if amount is None:
-            log.warning(f"Could not convert fiat to {coin}")
             return None
         rate = self.get_live_rate(coin, fiat)
-        fiat_val = fiat_cents / (10 ** currency_exp)
-        qr = f"{coin.lower()}:{address}?amount={amount}"
+        if rate is None:
+            return None
+        fiat_value = float(fiat_cents) / float(10 ** currency_exp)
+        qr_string = f"{coin.lower()}:{address}?amount={amount}"
         display = (
-            f"\U0001f4b0 Send exactly: <code>{amount} {coin}</code>\n"
-            f"\U0001f4eb To address: <code>{address}</code>\n"
-            f"\U0001f4b6 Fiat equivalent: {currency_symbol}{fiat_val:.2f}\n"
-            f"\U0001f4ca Rate: 1 {coin} = {currency_symbol}{rate:,.4f}\n\n"
-            f"QR data: <code>{qr}</code>\n\n"
-            f"\u23f3 After sending, notify the owner to confirm your payment."
+            f"💰 Send exactly: <code>{amount} {coin}</code>\n"
+            f"📫 To address: <code>{address}</code>\n"
+            f"💶 Fiat equivalent: {currency_symbol}{fiat_value:.2f}\n"
+            f"📊 Rate: 1 {coin} = {currency_symbol}{rate:,.4f}\n\n"
+            f"QR data: <code>{qr_string}</code>"
         )
         return {
             "coin": coin,
             "address": address,
             "amount": amount,
             "rate": rate,
-            "fiat_amount": fiat_val,
+            "fiat_amount": fiat_value,
             "fiat_symbol": currency_symbol,
-            "qr_string": qr,
+            "qr_string": qr_string,
             "display": display,
         }
 
-    # ── Confirmation Polling Stub ────────────────────────────────────────
     def poll_address_for_payment(
         self,
         coin: str,
@@ -170,13 +192,12 @@ class CryptoPaymentManager:
         expected_amount: float,
         timeout_seconds: int = 1800,
     ) -> bool:
-        """
-        Stub for address-balance polling.
-        Override or extend to call a block-explorer API for BTC/XMR/ETH.
-        Returns True when payment is detected, False on timeout.
-        """
-        log.info(f"[poll_stub] Watching {coin} address {address[:12]}… "
-                 f"for {expected_amount} {coin} (timeout={timeout_seconds}s)")
-        # Real implementation would call e.g. blockchain.info / xmrchain.net APIs.
-        # Disabled by default — owner uses manual confirmation button.
+        log.info(
+            "[poll_stub] Watching %s address %s for %s %s (timeout=%ss)",
+            coin,
+            address[:12],
+            expected_amount,
+            coin,
+            timeout_seconds,
+        )
         return False
