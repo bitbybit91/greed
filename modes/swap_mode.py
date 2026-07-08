@@ -153,7 +153,7 @@ def run_swap_menu(w: "_w.Worker") -> None:
         deposit_addr=deposit_address,
         tx_ref=tx_ref,
         status="pending",
-        created_at=datetime.datetime.utcnow(),
+        created_at=datetime.datetime.now(datetime.timezone.utc),
     )
     w.session.add(swap)
     w.session.commit()

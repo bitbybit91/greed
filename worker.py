@@ -668,7 +668,7 @@ class Worker(threading.Thread):
         try:
             from modes.shop_mode import run_shop_checkout
         except ImportError:
-            self.bot.send_message(self.chat.id, "Crypto checkout is unavailable right now.")
+            self.bot.send_message(self.chat.id, "Shop checkout module is unavailable. Please contact the administrator.")
             return
         if not run_shop_checkout(self, order=order, order_total_cents=int(self.__get_cart_value(cart))):
             self.session.rollback()
@@ -786,7 +786,7 @@ class Worker(threading.Thread):
             try:
                 self._crypto_mgr = manager_cls()
             except Exception as exc:
-                log.warning(f"Failed to initialise crypto manager: {exc}")
+                log.warning(f"Failed to initialize crypto manager: {exc}")
                 self._crypto_mgr = None
         return self._crypto_mgr
 
@@ -842,7 +842,11 @@ class Worker(threading.Thread):
             parse_mode="HTML",
             reply_markup=telegram.ReplyKeyboardRemove(),
         )
-        self.bot.send_message(self.chat.id, "Reply with your transaction ID after sending the payment.", reply_markup=cancel)
+        self.bot.send_message(
+            self.chat.id,
+            "Reply with your transaction ID after sending the payment.",
+            reply_markup=cancel,
+        )
         tx_reply = self.__wait_for_regex(r"(.+)", cancellable=True)
         if isinstance(tx_reply, CancelSignal):
             return

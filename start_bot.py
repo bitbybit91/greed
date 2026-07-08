@@ -11,6 +11,7 @@ BASE_DIR = Path(__file__).resolve().parent
 VENV_DIR = BASE_DIR / "venv"
 REQUIREMENTS = BASE_DIR / "requirements.txt"
 INSTANCE_DIR = BASE_DIR / "config" / "instances"
+# Match the placeholder token formats already present in this repository's templates.
 PLACEHOLDER_TOKENS = (
     "123456789:YOUR_TOKEN_HERE_",
     "123456789:YOUR_TOKEN_GOES_HERE_______________",

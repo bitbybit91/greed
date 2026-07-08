@@ -60,7 +60,7 @@ def run_shop_checkout(w: "_w.Worker", order, order_total_cents: int) -> bool:
         fiat_amount=f"{payment_info['fiat_amount']:.2f}",
         tx_ref=payment_info["tx_ref"],
         confirmed=False,
-        created_at=datetime.datetime.utcnow(),
+        created_at=datetime.datetime.now(datetime.timezone.utc),
     )
     shipping_details = db.ShippingDetails(
         order=order,
@@ -68,7 +68,7 @@ def run_shop_checkout(w: "_w.Worker", order, order_total_cents: int) -> bool:
         address=shipping["address"],
         phone=shipping["phone"],
         notes=shipping.get("notes", ""),
-        created_at=datetime.datetime.utcnow(),
+        created_at=datetime.datetime.now(datetime.timezone.utc),
     )
     w.session.add(transaction)
     w.session.add(crypto_deposit)

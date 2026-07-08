@@ -266,13 +266,20 @@ class Order(TableDeclarativeBase):
         else:
             status_emoji = w.loc.get("emoji_not_processed")
             status_text = w.loc.get("text_not_processed")
+        display_total = 0
+        if self.transaction is not None:
+            display_total = -self.transaction.value
+            if display_total == 0 and self.transaction.notes:
+                match = re.search(r"ORDER_TOTAL_CENTS=(\d+)", self.transaction.notes)
+                if match is not None:
+                    display_total = int(match.group(1))
         if user and w.cfg["Appearance"]["full_order_info"] == "no":
             return w.loc.get("user_order_format_string",
                              status_emoji=status_emoji,
                              status_text=status_text,
                              items=items,
                              notes=self.notes,
-                             value=str(w.Price(-self.transaction.value))) + \
+                             value=str(w.Price(display_total))) + \
                    (w.loc.get("refund_reason", reason=self.refund_reason) if self.refund_date is not None else "")
         else:
             return status_emoji + " " + \
@@ -282,7 +289,7 @@ class Order(TableDeclarativeBase):
                              date=self.creation_date.isoformat(),
                              items=items,
                              notes=self.notes if self.notes is not None else "",
-                             value=str(w.Price(-self.transaction.value))) + \
+                             value=str(w.Price(display_total))) + \
                    (w.loc.get("refund_reason", reason=self.refund_reason) if self.refund_date is not None else "")
 
 

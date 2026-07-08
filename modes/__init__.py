@@ -19,6 +19,7 @@ DEFAULT_MODE = "SHOP_BOT"
 
 
 def _read_mode_config() -> dict:
+    """Read simple mode configuration, falling back to single-line scalar parsing if needed."""
     if not MODE_CONFIG_PATH.exists():
         return {}
     if _toml_loader is not None:

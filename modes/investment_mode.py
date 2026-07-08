@@ -204,7 +204,7 @@ def _run_deposit_flow(w: "_w.Worker") -> None:
         duration_days=plan["duration_days"],
         tx_ref=tx_ref,
         paid_out=False,
-        created_at=datetime.datetime.utcnow(),
+        created_at=datetime.datetime.now(datetime.timezone.utc),
     )
     w.session.add(deposit)
     w.session.commit()
