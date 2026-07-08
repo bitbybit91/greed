@@ -219,6 +219,21 @@ menu_edit_admins = "🏵 Edit Managers"
 # Menu: language
 menu_language = "🇬🇧 Language"
 
+# Menu: investment portal
+menu_investment_portal = "💼 Investment Portal"
+
+# Menu: swap crypto
+menu_swap_crypto = "🔄 Swap Crypto"
+
+# Menu: bot mode
+menu_bot_mode = "🤖 Bot Mode"
+
+# Menu: crypto addresses
+menu_crypto_addresses = "💰 Crypto Addresses"
+
+# Menu: WooCommerce import
+menu_woo_import = "📦 Import Products (WooCommerce)"
+
 # Emoji: unprocessed order
 emoji_not_processed = "*️⃣"
 

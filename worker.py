@@ -212,6 +212,7 @@ class Worker(threading.Thread):
         try:
             # Welcome the user to the bot
             welcome_setting = self.cfg["Appearance"]["display_welcome_message"]
+            # Accept both legacy "yes" strings and boolean True for backward compatibility.
             if welcome_setting is True or str(welcome_setting).lower() == "yes":
                 self.bot.send_message(self.chat.id, self.loc.get("conversation_after_start"))
             # If the user is not an admin, send him to the user menu
@@ -407,6 +408,12 @@ class Worker(threading.Thread):
                 continue
             return user
 
+    def __loc_or_default(self, key: str, default: str) -> str:
+        try:
+            return self.loc.get(key)
+        except Exception:
+            return default
+
     def __user_menu(self):
         """Function called from the run method when the user is not an administrator.
         Normal bot actions should be placed here."""
@@ -420,14 +427,16 @@ class Worker(threading.Thread):
                 import modes as _m; _active_mode = _m.get_active_mode()
             except ImportError:
                 pass
+            investment_portal_label = self.__loc_or_default("menu_investment_portal", "💼 Investment Portal")
+            swap_crypto_label = self.__loc_or_default("menu_swap_crypto", "🔄 Swap Crypto")
             keyboard = []
             if _active_mode == "SHOP_BOT":
                 keyboard = [[telegram.KeyboardButton(self.loc.get("menu_order"))],
                              [telegram.KeyboardButton(self.loc.get("menu_order_status"))]]
             elif _active_mode == "INVESTMENT_BOT":
-                keyboard = [[telegram.KeyboardButton("\U0001f4bc Investment Portal")]]
+                keyboard = [[telegram.KeyboardButton(investment_portal_label)]]
             elif _active_mode == "SWAP_BOT":
-                keyboard = [[telegram.KeyboardButton("\U0001f504 Swap Crypto")]]
+                keyboard = [[telegram.KeyboardButton(swap_crypto_label)]]
             keyboard += [
                 [telegram.KeyboardButton(self.loc.get("menu_add_credit"))],
                 [telegram.KeyboardButton(self.loc.get("menu_language"))],
@@ -444,9 +453,9 @@ class Worker(threading.Thread):
             if _active_mode == "SHOP_BOT":
                 accepted_messages += [self.loc.get("menu_order"), self.loc.get("menu_order_status")]
             elif _active_mode == "INVESTMENT_BOT":
-                accepted_messages.append("💼 Investment Portal")
+                accepted_messages.append(investment_portal_label)
             elif _active_mode == "SWAP_BOT":
-                accepted_messages.append("🔄 Swap Crypto")
+                accepted_messages.append(swap_crypto_label)
             accepted_messages += [
                 self.loc.get("menu_add_credit"),
                 self.loc.get("menu_language"),
@@ -480,13 +489,13 @@ class Worker(threading.Thread):
             elif selection == self.loc.get("menu_help"):
                 # Go to the Help menu
                 self.__help_menu()
-            elif selection == "\U0001f4bc Investment Portal":
+            elif selection == investment_portal_label:
                 try:
                     from modes.investment_mode import run_investment_menu
                     run_investment_menu(self)
                 except ImportError:
                     self.bot.send_message(self.chat.id, "Investment mode unavailable.")
-            elif selection == "\U0001f504 Swap Crypto":
+            elif selection == swap_crypto_label:
                 try:
                     from modes.swap_mode import run_swap_menu
                     run_swap_menu(self)
@@ -939,6 +948,9 @@ class Worker(threading.Thread):
         log.debug("Displaying __admin_menu")
         # Loop used to return to the menu after executing a command
         while True:
+            bot_mode_label = self.__loc_or_default("menu_bot_mode", "🤖 Bot Mode")
+            crypto_addresses_label = self.__loc_or_default("menu_crypto_addresses", "💰 Crypto Addresses")
+            woo_import_label = self.__loc_or_default("menu_woo_import", "📦 Import Products (WooCommerce)")
             # Create a keyboard with the admin main menu based on the admin permissions specified in the db
             keyboard = []
             if self.admin.edit_products:
@@ -951,9 +963,9 @@ class Worker(threading.Thread):
                 keyboard.append([self.loc.get("menu_transactions"), self.loc.get("menu_csv")])
             if self.admin.is_owner:
                 keyboard.append([self.loc.get("menu_edit_admins")])
-                keyboard.append(["\U0001f916 Bot Mode"])
-                keyboard.append(["\U0001f4b0 Crypto Addresses"])
-                keyboard.append(["\U0001f4e6 Import Products (WooCommerce)"])
+                keyboard.append([bot_mode_label])
+                keyboard.append([crypto_addresses_label])
+                keyboard.append([woo_import_label])
             keyboard.append([self.loc.get("menu_user_mode")])
             # Send the previously created keyboard to the user (ensuring it can be clicked only 1 time)
             self.bot.send_message(self.chat.id, self.loc.get("conversation_open_admin_menu"),
@@ -971,9 +983,9 @@ class Worker(threading.Thread):
             if self.admin.is_owner:
                 accepted_messages.extend([
                     self.loc.get("menu_edit_admins"),
-                    "🤖 Bot Mode",
-                    "💰 Crypto Addresses",
-                    "📦 Import Products (WooCommerce)",
+                    bot_mode_label,
+                    crypto_addresses_label,
+                    woo_import_label,
                 ])
             accepted_messages.append(self.loc.get("menu_user_mode"))
             selection = self.__wait_for_specific_message(accepted_messages)
@@ -1007,11 +1019,11 @@ class Worker(threading.Thread):
             elif selection == self.loc.get("menu_csv") and self.admin.create_transactions:
                 # Generate the .csv file
                 self.__transactions_file()
-            elif selection == "🤖 Bot Mode" and self.admin.is_owner:
+            elif selection == bot_mode_label and self.admin.is_owner:
                 self.__admin_mode_panel()
-            elif selection == "💰 Crypto Addresses" and self.admin.is_owner:
+            elif selection == crypto_addresses_label and self.admin.is_owner:
                 self.__admin_reload_crypto()
-            elif selection == "📦 Import Products (WooCommerce)" and self.admin.is_owner:
+            elif selection == woo_import_label and self.admin.is_owner:
                 self.__admin_woo_import()
 
     def __products_menu(self):

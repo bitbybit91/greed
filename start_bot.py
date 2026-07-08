@@ -32,8 +32,10 @@ def read_token(config_path: Path) -> str:
         content = config_path.read_text(encoding="utf-8")
     except OSError:
         return ""
-    match = re.search(r'^token\s*=\s*["\']([^"\']+)["\']', content, re.MULTILINE)
-    return match.group(1).strip() if match else ""
+    match = re.search(r'^token\s*=\s*(?:["\']([^"\']+)["\']|([^\s#]+))', content, re.MULTILINE)
+    if not match:
+        return ""
+    return (match.group(1) or match.group(2) or "").strip()
 
 
 def is_real_token(token: str) -> bool:

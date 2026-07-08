@@ -34,8 +34,12 @@ def _read_mode_config() -> dict:
         log.warning("Could not read mode config: %s", exc)
         return {}
     config = {}
-    for key, value in re.findall(r'^\s*([A-Za-z0-9_]+)\s*=\s*["\']?([^"\n\']+)["\']?\s*$', content, re.MULTILINE):
-        config[key] = value.strip()
+    pattern = re.compile(
+        r'^\s*([A-Za-z0-9_]+)\s*=\s*(?:["\']([^"\']*)["\']|([^\s#]+))',
+        re.MULTILINE,
+    )
+    for key, quoted_value, bare_value in pattern.findall(content):
+        config[key] = (quoted_value or bare_value).strip()
     return config
 
 

@@ -36,6 +36,13 @@ COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
 CACHE_TTL = 60
 
 
+def _strip_wrapping_quotes(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        return value[1:-1]
+    return value
+
+
 class CryptoPaymentManager:
     def __init__(self, config_path: str = "config/crypto_addresses.toml"):
         self.config_path = Path(config_path)
@@ -76,7 +83,7 @@ class CryptoPaymentManager:
                 continue
             key, value = line.split("=", 1)
             key = key.strip().upper()
-            value = value.strip().strip('"').strip("'")
+            value = _strip_wrapping_quotes(value)
             addresses[key] = value
         return {"addresses": addresses}
 
